@@ -77,13 +77,18 @@ class WorkflowClient:
         self.timeout = float(timeout)
         self._extra_env = dict(env or {})
 
-    def _default_python(self) -> Path:
+    def _default_python(self) -> Path | None:
         override = os.environ.get(WORKFLOW_PYTHON_ENV, "").strip()
         if override:
             return Path(override)
         candidate = self.root / "tools" / ".venv" / "Scripts" / "python.exe"
         if candidate.is_file():
             return candidate
+        # Inside a frozen build ``sys.executable`` is the app itself, not an
+        # interpreter, so it can never run ``-m ccfa.<tool>``. Require the
+        # workflow's own interpreter (or an explicit setting) instead.
+        if getattr(sys, "frozen", False):
+            return None
         return Path(sys.executable)
 
     def environment(self) -> dict:
@@ -106,6 +111,13 @@ class WorkflowClient:
         # A bare name is a workflow tool (``ccfa.<name>``); a dotted name is
         # used verbatim, so non-ccfa entry points stay reachable.
         target = module if "." in module else f"ccfa.{module}"
+        if self.python is None:
+            raise WorkflowError(
+                "找不到工作流解释器：请在设置里指定工作流目录"
+                f"（应为包含 tools/.venv 的仓库根），或用 {WORKFLOW_PYTHON_ENV}"
+                " 指定 Python",
+                code="workflow-python-missing",
+            )
         argv = [str(self.python), "-m", target]
         argv.extend(str(item) for item in args)
         try:

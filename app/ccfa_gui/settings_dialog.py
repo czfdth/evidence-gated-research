@@ -65,6 +65,41 @@ class SettingsDialog(QDialog):
         )
         registry_row.addWidget(self.http_tools_browse_button)
         form.addRow("HTTP tools", registry_row)
+
+        workflow_row = QHBoxLayout()
+        self.workflow_root_edit = QLineEdit()
+        self.workflow_root_edit.setObjectName("workflow_root_edit")
+        self.workflow_root_edit.setPlaceholderText(
+            "工作流仓库根目录（含 tools/），留空则用环境变量或默认"
+        )
+        workflow_row.addWidget(self.workflow_root_edit, stretch=1)
+        self.workflow_root_browse_button = QPushButton("浏览")
+        self.workflow_root_browse_button.setObjectName(
+            "workflow_root_browse_button"
+        )
+        self.workflow_root_browse_button.clicked.connect(
+            self._browse_workflow_root
+        )
+        workflow_row.addWidget(self.workflow_root_browse_button)
+        form.addRow("工作流目录", workflow_row)
+
+        python_row = QHBoxLayout()
+        self.workflow_python_edit = QLineEdit()
+        self.workflow_python_edit.setObjectName("workflow_python_edit")
+        self.workflow_python_edit.setPlaceholderText(
+            "可选；留空则用 <工作流目录>/tools/.venv 里的解释器"
+        )
+        python_row.addWidget(self.workflow_python_edit, stretch=1)
+        self.workflow_python_browse_button = QPushButton("浏览")
+        self.workflow_python_browse_button.setObjectName(
+            "workflow_python_browse_button"
+        )
+        self.workflow_python_browse_button.clicked.connect(
+            self._browse_workflow_python
+        )
+        python_row.addWidget(self.workflow_python_browse_button)
+        form.addRow("Python 解释器", python_row)
+
         layout.addLayout(form)
 
         self.key_status_label = QLabel("未配置")
@@ -95,6 +130,10 @@ class SettingsDialog(QDialog):
         provider = settings.provider
         if settings.http_tools_path is not None:
             self.http_tools_path_edit.setText(settings.http_tools_path)
+        if settings.workflow_root is not None:
+            self.workflow_root_edit.setText(settings.workflow_root)
+        if settings.workflow_python is not None:
+            self.workflow_python_edit.setText(settings.workflow_python)
         if provider is None:
             return
         self.name_edit.setText(provider.name)
@@ -124,6 +163,28 @@ class SettingsDialog(QDialog):
         )
         if selected:
             self.http_tools_path_edit.setText(selected)
+
+    def _browse_workflow_root(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "选择工作流仓库根目录",
+            self.workflow_root_edit.text().strip()
+            or str(self._settings_path.parent),
+        )
+        if selected:
+            self.workflow_root_edit.setText(selected)
+
+    def _browse_workflow_python(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "选择工作流的 Python 解释器",
+            self.workflow_python_edit.text().strip()
+            or self.workflow_root_edit.text().strip()
+            or str(self._settings_path.parent),
+            "Python (python.exe);;所有文件 (*)",
+        )
+        if selected:
+            self.workflow_python_edit.setText(selected)
 
     def _registry_path(self, configured: str) -> Path:
         path = Path(configured)
@@ -178,6 +239,12 @@ class SettingsDialog(QDialog):
                         timeout_s=float(self.timeout_spin.value()),
                     ),
                     http_tools_path=http_tools_path,
+                    workflow_root=(
+                        self.workflow_root_edit.text().strip() or None
+                    ),
+                    workflow_python=(
+                        self.workflow_python_edit.text().strip() or None
+                    ),
                 ),
             )
         except ValueError as exc:

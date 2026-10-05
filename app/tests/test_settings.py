@@ -2,8 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ccfa_core.settings import (
+    default_settings_path,
+    installed_settings_path,
     ProviderSettings,
     Settings,
     load_settings,
@@ -183,6 +186,41 @@ class SettingsTests(unittest.TestCase):
                 self.path,
                 Settings(provider=self._provider(timeout_s=0)),
             )
+
+
+    def test_workflow_location_round_trips(self):
+        save_settings(
+            self.path,
+            Settings(
+                workflow_root=r"C:\work\research-workflow",
+                workflow_python=r"C:\work\rw\tools\.venv\Scripts\python.exe",
+            ),
+        )
+
+        settings = load_settings(self.path)
+
+        self.assertEqual(settings.workflow_root, r"C:\work\research-workflow")
+        self.assertTrue(settings.workflow_python.endswith("python.exe"))
+
+    def test_blank_workflow_location_is_rejected(self):
+        with self.assertRaises(ValueError):
+            save_settings(self.path, Settings(workflow_root="   "))
+
+    def test_default_settings_path_uses_appdata_when_frozen(self):
+        with mock.patch(
+            "ccfa_core.settings.is_frozen", return_value=True
+        ):
+            path = default_settings_path(self.path.parent)
+
+        self.assertEqual(path, installed_settings_path())
+
+    def test_default_settings_path_uses_the_repository_when_not_frozen(self):
+        with mock.patch(
+            "ccfa_core.settings.is_frozen", return_value=False
+        ):
+            path = default_settings_path(self.path.parent)
+
+        self.assertEqual(path, self.path.parent / "app" / "settings.json")
 
 
 if __name__ == "__main__":

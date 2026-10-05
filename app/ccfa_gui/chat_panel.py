@@ -34,6 +34,7 @@ from ccfa_core.http_tools import HttpToolRegistry, load_registry
 from ccfa_core.secrets import KeyringSecretStore, SecretStoreUnavailable
 from ccfa_core.settings import load_settings
 from ccfa_core.tools_bridge import ToolBridge, openai_tools
+from ccfa_core.workflow import WorkflowClient
 
 ENGINE_OPENAI = "openai"
 ENGINE_CODEX = "codex"
@@ -282,6 +283,7 @@ class ChatPanel(QWidget):
         self._tool_bridge = ToolBridge(
             project_root,
             library_dir=library_dir,
+            workflow=self._workflow_client(),
             confirm_write=lambda name, arguments: self.write_confirmer(
                 name,
                 arguments,
@@ -317,6 +319,24 @@ class ChatPanel(QWidget):
         codes = tuple(sorted({issue.code for issue in issues}))
         self._registry_issue_codes = codes
         return codes
+
+    def _workflow_client(self) -> WorkflowClient | None:
+        """Build the workflow client from settings, if the user configured it.
+
+        Returns ``None`` to let :class:`ToolBridge` use the default discovery
+        (environment variable, then the repository layout).
+        """
+
+        try:
+            settings = load_settings(self._settings_path)
+        except ValueError:
+            return None
+        if settings.workflow_root is None and settings.workflow_python is None:
+            return None
+        return WorkflowClient(
+            settings.workflow_root,
+            python=settings.workflow_python,
+        )
 
     def _load_http_tools(self) -> HttpToolRegistry | None:
         try:

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from ccfa_core.checks import CheckError, run_milestones_due, run_validate
 from ccfa_core.projects import ProjectError, find_projects, load_project
 from ccfa_core.secrets import KeyringSecretStore, SecretStoreUnavailable
+from ccfa_core.settings import default_settings_path
 
 from .chat_panel import ChatPanel
 from .settings_dialog import SettingsDialog
@@ -61,7 +62,7 @@ class MainWindow(QMainWindow):
         self._settings_path = (
             Path(settings_path)
             if settings_path is not None
-            else self._repo_root / "app" / "settings.json"
+            else default_settings_path(self._repo_root)
         )
         self._build_ui()
         self.refresh_projects()

@@ -3,7 +3,12 @@
 # CLI, so the workflow's own dependencies (bibtexparser, pylatexenc) are no
 # longer needed here. PyYAML stays because the workbench reads ccfa.yaml and
 # tool-registry YAML itself.
-PySide6==6.11.2
+# Pinned below the newest release on purpose: freezing PySide6 6.11.2 with
+# PyInstaller 6.22.3 produces an executable that dies with
+# "DLL load failed while importing QtWidgets" (reproduced with a 10-line app).
+# 6.9.1 freezes and runs correctly. Raise this only after re-verifying
+# scripts/build-workbench.ps1.
+PySide6==6.9.1
 keyring==25.7.0
 PyYAML==6.0.3
 httpx==0.28.1

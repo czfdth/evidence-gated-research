@@ -44,6 +44,28 @@ cd <仓库根>
 & app/.venv/Scripts/python.exe -m unittest discover -s app/tests -t app
 ```
 
+## 打包成 Windows 安装包
+
+```powershell
+cd <仓库根>
+& app/.venv/Scripts/python.exe -m pip install -r app/requirements-dev.txt
+scripts/build-workbench.ps1
+```
+
+产物：`dist/ccfa-workbench/`（PyInstaller 冻结版）与
+`dist/ccfa-workbench-setup-<version>.exe`（Inno Setup 安装程序）。
+安装是按用户进行的（不需要管理员），默认装到
+`%LOCALAPPDATA%\Programs\ccfa-workbench`，卸载时保留 `%APPDATA%` 下的设置。
+
+**安装版必须配置工作流目录**：冻结包里没有 `ccfa`，所以第一次启动后要在设置页
+填写「工作流目录」（包含 `tools/.venv` 的仓库根），或者设置环境变量
+`CCFA_WORKFLOW_ROOT`。设置本身写在 `%APPDATA%\ccfa-workbench\settings.json`。
+
+**PySide6 版本**：`requirements.txt` 故意钉在 6.9.1 而不是最新版。用 6.11.2 冻结
+出来的程序启动即报 `DLL load failed while importing QtWidgets`（用一个 10 行的
+最小应用复现过，与本项目代码无关）。升级这个 pin 之前，一定要重跑
+`scripts/build-workbench.ps1` 并实测启动。
+
 ## 启动 GUI
 
 ```powershell

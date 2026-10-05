@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,40 @@ from ccfa_core.atomic import save_text_atomically
 
 SCHEMA_VERSION = 1
 PROVIDER_FIELDS = ("name", "base_url", "model", "key_name", "timeout_s")
+TOP_LEVEL_FIELDS = (
+    "schema_version",
+    "provider",
+    "http_tools_path",
+    "workflow_root",
+    "workflow_python",
+)
+APP_DIR_NAME = "ccfa-workbench"
+
+
+def is_frozen() -> bool:
+    """True when running from a PyInstaller bundle."""
+
+    return bool(getattr(sys, "frozen", False))
+
+
+def installed_settings_path() -> Path:
+    """Per-user settings path used by the installed app."""
+
+    base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or "."
+    return Path(base) / APP_DIR_NAME / "settings.json"
+
+
+def default_settings_path(repo_root: Path | None = None) -> Path:
+    """Pick a writable settings file for the current deployment.
+
+    A frozen build has no repository to write into, so it uses ``%APPDATA%``.
+    Running from source keeps the historical ``app/settings.json``.
+    """
+
+    if is_frozen():
+        return installed_settings_path()
+    root = Path(repo_root) if repo_root is not None else Path.cwd()
+    return root / "app" / "settings.json"
 
 
 @dataclass(frozen=True)
@@ -27,12 +63,22 @@ class Settings:
     schema_version: int = SCHEMA_VERSION
     provider: ProviderSettings | None = None
     http_tools_path: str | None = None
+    workflow_root: str | None = None
+    workflow_python: str | None = None
 
 
 def _text(field: str, value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"provider.{field} 必须是非空字符串")
     return value
+
+
+def _optional_text(field: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} 必须是非空字符串或 null")
+    return value.strip()
 
 
 def _provider_from_payload(payload: Any) -> ProviderSettings | None:
@@ -67,9 +113,7 @@ def _settings_from_payload(payload: Any) -> Settings:
         return Settings()
     if not isinstance(payload, dict):
         raise ValueError("settings.json 顶层必须是对象")
-    unknown = sorted(
-        set(payload) - {"schema_version", "provider", "http_tools_path"}
-    )
+    unknown = sorted(set(payload) - set(TOP_LEVEL_FIELDS))
     if unknown:
         raise ValueError(f"settings.json 含未知字段: {', '.join(unknown)}")
     version = payload.get("schema_version")
@@ -77,16 +121,17 @@ def _settings_from_payload(payload: Any) -> Settings:
         raise ValueError(
             f"settings.json schema_version 必须是 {SCHEMA_VERSION}: {version!r}"
         )
-    http_tools_path = payload.get("http_tools_path")
-    if http_tools_path is not None and (
-        not isinstance(http_tools_path, str) or not http_tools_path.strip()
-    ):
-        raise ValueError("http_tools_path 必须是非空字符串或 null")
     return Settings(
         schema_version=SCHEMA_VERSION,
         provider=_provider_from_payload(payload.get("provider")),
-        http_tools_path=(
-            http_tools_path.strip() if http_tools_path is not None else None
+        http_tools_path=_optional_text(
+            "http_tools_path", payload.get("http_tools_path")
+        ),
+        workflow_root=_optional_text(
+            "workflow_root", payload.get("workflow_root")
+        ),
+        workflow_python=_optional_text(
+            "workflow_python", payload.get("workflow_python")
         ),
     )
 
@@ -136,11 +181,13 @@ def save_settings(
             "timeout_s": settings.provider.timeout_s,
         }
     )
-    http_tools_path = settings.http_tools_path
-    if http_tools_path is not None and (
-        not isinstance(http_tools_path, str) or not http_tools_path.strip()
-    ):
-        raise ValueError("http_tools_path 必须是非空字符串或 null")
+    http_tools_path = _optional_text(
+        "http_tools_path", settings.http_tools_path
+    )
+    workflow_root = _optional_text("workflow_root", settings.workflow_root)
+    workflow_python = _optional_text(
+        "workflow_python", settings.workflow_python
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "provider": None
@@ -152,9 +199,9 @@ def save_settings(
             "key_name": provider.key_name,
             "timeout_s": provider.timeout_s,
         },
-        "http_tools_path": (
-            http_tools_path.strip() if http_tools_path is not None else None
-        ),
+        "http_tools_path": http_tools_path,
+        "workflow_root": workflow_root,
+        "workflow_python": workflow_python,
     }
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     save_text_atomically(path, text, description="设置")

@@ -471,6 +471,7 @@ class ToolBridge:
         project_root: Path,
         *,
         library_dir: Path | None = None,
+        workflow: WorkflowClient | None = None,
         confirm_write: Callable[[str, dict], bool] | None = None,
         on_call: Callable[[dict], None] | None = None,
         http_tools: HttpToolRegistry | None = None,
@@ -479,7 +480,11 @@ class ToolBridge:
         self.library_dir = (
             Path(library_dir) if library_dir is not None else None
         )
-        self._context = ToolContext(self.project_root, self.library_dir)
+        self._context = ToolContext(
+            self.project_root,
+            self.library_dir,
+            workflow,
+        )
         self._confirm_write = confirm_write
         self._on_call = on_call
         self._tools = dict(_TOOLS_BY_NAME)

@@ -1,6 +1,7 @@
 """Tests for the process boundary between the workbench and the workflow."""
 
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,6 +93,28 @@ class WorkflowClientTests(unittest.TestCase):
         self.assertIsNone(WorkflowClient._parse("not json"))
         self.assertIsNone(WorkflowClient._parse("[1, 2]"))
         self.assertEqual(WorkflowClient._parse('{"a": 1}'), {"a": 1})
+
+    def test_frozen_build_never_falls_back_to_its_own_executable(self):
+        with mock.patch.object(sys, "frozen", True, create=True):
+            client = WorkflowClient(self.root)
+
+            self.assertIsNone(client.python)
+            with self.assertRaises(WorkflowError) as caught:
+                client.run("stages", ("--mode", "conference"))
+
+        self.assertEqual(caught.exception.code, "workflow-python-missing")
+        self.assertIn("工作流目录", str(caught.exception))
+
+    def test_frozen_build_uses_the_bundled_workflow_venv_when_present(self):
+        venv = self.root / "tools" / ".venv" / "Scripts"
+        venv.mkdir(parents=True)
+        interpreter = venv / "python.exe"
+        interpreter.write_text("", encoding="utf-8")
+
+        with mock.patch.object(sys, "frozen", True, create=True):
+            client = WorkflowClient(self.root)
+
+        self.assertEqual(client.python, interpreter)
 
 
 if __name__ == "__main__":
