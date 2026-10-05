@@ -70,6 +70,48 @@ jobs:
           tools/.venv/Scripts/python.exe -m pip install --upgrade pip
           tools/.venv/Scripts/python.exe -m pip install -r tools/requirements.lock
 
+      - name: Install venue template library
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # The derivation end-to-end suites resolve templates from
+          # $CODEX_HOME/skills/ccf-latex-templates. That tree is a public skill
+          # from mikubaka88/CCFA-Skills, so a clean runner can install it here.
+          $skills = Join-Path $env:USERPROFILE ".codex\skills"
+          New-Item -ItemType Directory -Force -Path $skills | Out-Null
+          $checkout = Join-Path $env:RUNNER_TEMP "ccfa-skills"
+          git clone --depth 1 --filter=blob:none --sparse `
+            https://github.com/mikubaka88/CCFA-Skills.git $checkout
+          git -C $checkout sparse-checkout set ccf-latex-templates
+          Copy-Item -Recurse -Force `
+            (Join-Path $checkout "ccf-latex-templates") `
+            (Join-Path $skills "ccf-latex-templates")
+
+      - name: Install MiKTeX for real compile evidence
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Compile tests need a real engine; skip guards cover a failed install.
+          choco install miktex --no-progress -y
+          $candidates = @(
+            "C:\Program Files\MiKTeX\miktex\bin\x64",
+            "C:\Program Files\MiKTeX 2.9\miktex\bin\x64"
+          )
+          $bin = $candidates |
+            Where-Object { Test-Path (Join-Path $_ "pdflatex.exe") } |
+            Select-Object -First 1
+          if (-not $bin) {
+            $found = Get-ChildItem "C:\Program Files" -Recurse -Filter pdflatex.exe `
+              -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $bin = $found.DirectoryName }
+          }
+          if ($bin) {
+            Add-Content -Path $env:GITHUB_PATH -Value $bin
+            Write-Host "pdflatex bin: $bin"
+          } else {
+            Write-Warning "MiKTeX installed but pdflatex was not found"
+          }
+
       - name: Compile core modules
         shell: pwsh
         run: |
@@ -93,6 +135,7 @@ jobs:
             tools/ccfa/proof_run.py `
             tools/ccfa/reference_audit.py `
             tools/ccfa/readiness.py `
+            tools/ccfa/repro_container.py `
             tools/ccfa/repro_package.py `
             tools/ccfa/research_ledgers.py `
             tools/ccfa/research_state.py `

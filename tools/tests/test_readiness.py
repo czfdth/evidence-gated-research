@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+from ccfa import readiness
 from ccfa.cli import Problem
 from ccfa.readiness import build_report, main, render_markdown
 
@@ -398,6 +399,72 @@ class ReadinessTests(unittest.TestCase):
 
         self.assertEqual(report["profile"], "high-assurance")
 
+    def test_assurance_submission_raises_the_audit_chain_without_more_effort(self):
+        self._touch_ledgers(["novelty"])
+        self._write_state(
+            "workflow:\n  profile: minimal\n  assurance: submission\n"
+        )
+
+        report = build_report(self.paper_root)
+
+        self.assertEqual(report["profile"], "minimal")
+        self.assertEqual(report["assurance"], "submission")
+        self.assertEqual(report["audit_profile"], "high-assurance")
+        self.assertEqual(report["human_review"]["status"], "pending-human-review")
+        self.assertIn("proof", report["evidence"]["missing_required"])
+        self.assertEqual(
+            report["dimensions"]["independently-reviewed"],
+            "missing-human-evidence",
+        )
+        self.assertFalse(report["ready"])
+
+    def test_assurance_draft_downgrades_the_audit_chain_only(self):
+        self._touch_ledgers(["novelty"])
+        self._write_state(
+            "workflow:\n  profile: high-assurance\n  assurance: draft\n"
+        )
+
+        report = build_report(self.paper_root)
+
+        self.assertEqual(report["profile"], "high-assurance")
+        self.assertEqual(report["assurance"], "draft")
+        self.assertEqual(report["audit_profile"], "standard")
+        self.assertEqual(report["human_review"]["status"], "not-required")
+
+    def test_standard_gate_failures_still_expose_human_checkpoints(self):
+        human = readiness._human_review_status(
+            self.paper_root,
+            "standard",
+            [
+                {
+                    "problems": [
+                        {
+                            "code": "review-contradiction: proof-review-not-verified",
+                        }
+                    ]
+                }
+            ],
+        )
+
+        self.assertEqual(human["status"], "pending-human-review")
+        self.assertEqual(human["pending"], ["proof"])
+        self.assertEqual(human["checkpoints"][0]["id"], "proof")
+
+    def test_high_assurance_defaults_to_submission_assurance(self):
+        self._touch_ledgers(["novelty"])
+        self._write_state("workflow:\n  profile: high-assurance\n")
+
+        report = build_report(self.paper_root)
+
+        self.assertEqual(report["assurance"], "submission")
+        self.assertEqual(report["audit_profile"], "high-assurance")
+
+    def test_unknown_assurance_is_rejected(self):
+        self._write_state("workflow:\n  assurance: epic\n")
+
+        with self.assertRaises(ValueError):
+            build_report(self.paper_root)
+
     def test_git_remote_and_workflow_status_are_reported(self):
         subprocess.run(["git", "init"], cwd=self.paper_root, check=True, capture_output=True)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.paper_root, check=True)
@@ -413,6 +480,22 @@ class ReadinessTests(unittest.TestCase):
         self.assertFalse(report["git"]["dirty"])
         self.assertEqual(report["git"]["remotes"], ["origin"])
         self.assertTrue(report["git"]["workflows_present"])
+
+    def test_generated_readiness_reports_do_not_mark_tree_dirty(self):
+        subprocess.run(["git", "init"], cwd=self.paper_root, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.paper_root, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.paper_root, check=True)
+        reviews = self.paper_root / "reviews"
+        reviews.mkdir()
+        (reviews / ".gitkeep").write_text("", encoding="utf-8")
+        subprocess.run(["git", "add", "ccfa.yaml", "reviews/.gitkeep"], cwd=self.paper_root, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.paper_root, check=True, capture_output=True)
+        (reviews / "readiness.md").write_text("# report\n", encoding="utf-8")
+        (reviews / "readiness.json").write_text("{}\n", encoding="utf-8")
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        self.assertFalse(report["git"]["dirty"])
 
     def test_standard_requires_git_remote_and_workflows(self):
         self._touch_ledgers(

@@ -41,6 +41,23 @@ def calibrate(
     tp = fp = tn = fn = 0
     missing = []
     invalid = []
+    if not gold:
+        return {
+            "tp": 0,
+            "fp": 0,
+            "tn": 0,
+            "fn": 0,
+            "fnr": 0.0,
+            "fpr": 0.0,
+            "missing": [],
+            "invalid": [],
+            "gold_count": 0,
+            "prediction_count": len(predictions),
+            "max_fnr": max_fnr,
+            "max_fpr": max_fpr,
+            "threshold_pass": False,
+            "error": "gold-set-empty",
+        }
     for item_id, row in gold.items():
         label = row.get("label")
         if label not in {"supported", "unsupported"}:
@@ -73,6 +90,8 @@ def calibrate(
         "fpr": fpr,
         "missing": sorted(missing),
         "invalid": sorted(invalid),
+        "gold_count": len(gold),
+        "prediction_count": len(predictions),
         "max_fnr": max_fnr,
         "max_fpr": max_fpr,
         "threshold_pass": (

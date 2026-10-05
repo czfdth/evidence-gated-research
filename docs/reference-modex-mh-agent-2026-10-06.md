@@ -162,3 +162,21 @@ idea-discovery → novelty-check → research-refine(research contract)
    这是必选项；自用版本不急。
 3. 步骤级 output_files：把“这个 stage 产出了哪些文件”写进 stage history，
    让 `readiness` 能直接回答“这步的产物在哪”，而不只是“文件在不在”。
+
+## 六、加密技能包（补测）
+
+2026-10-06 追加实测，并据此设计了我们自己的 `.skillpack`：
+
+| 事实 | 证据 |
+| --- | --- |
+| 283 个 `*.enc`，合计 7,724,954 字节 | 递归统计 |
+| AES-256-GCM + zlib 字典框 | `skill_crypto.pyd` 的 `AES-256-GCM` / `nonce` / `zlib` / `dictionary` |
+| 机器指纹 = MachineGuid + `uuid.getnode()` | 同模块 `_get_machine_fingerprint` / `MachineGuid` / `getnode` |
+| 密钥运行时构造、用完擦除、执行前再联网校验 | `_xor_bind` / `_validate_secret_chain` / `_wipe_bytearray` / `_force_online_verify` |
+| 没有标准 KDF 名字 | backend 搜不到 `sha256` / `scrypt` / `hkdf` |
+
+它挡住了读提示词，但目录名、文件名、模板与提示词模块名全是明文，
+方法论骨架仍然可见（这份审计本身就是证据）。
+
+我们只抄“自描述 + 可校验”，不抄伪装层、服务端密钥和机器绑定，
+格式与威胁模型见 `docs/skillpack-format.md`。

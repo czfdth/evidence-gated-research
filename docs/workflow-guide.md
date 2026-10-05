@@ -346,6 +346,9 @@ scripts/repro-package.ps1 --paper-root $paper bundle `
     --out "$paper/submission/repro"
 scripts/repro-package.ps1 --paper-root $paper verify `
     --bundle "$paper/submission/repro"
+scripts/repro-container.ps1 verify `
+    --bundle "$paper/submission/repro" `
+    --out "$paper/reviews/repro-container.json"
 scripts/artifact-store.ps1 put --paper-root $paper `
     --path "figures/threat-model-lattice.pdf" --role figure --run-id RUN1
 scripts/artifact-store.ps1 verify --paper-root $paper
@@ -355,6 +358,11 @@ scripts/session-replay.ps1 check --paper-root $paper
 scripts/session-replay.ps1 render --paper-root $paper `
     --out "$paper/reviews/session-replay.html"
 ```
+
+如果 `data/repro-environment.yaml` 声明了 `container`，则必须同时写
+`container.receipt` 指向这份 JSON 收据；`repro_env` 会校验镜像 digest、
+`status=pass`、`exit_code=0` 和 `network=none`。只有说明文字、没有收据仍算
+未完成第二环境复现。
 
 在提交前检查匿名、页数、补充材料、AI 使用政策、预印本政策和一稿多投政策。
 

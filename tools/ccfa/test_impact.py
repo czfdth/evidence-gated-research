@@ -134,6 +134,11 @@ _TOOLS_EXACT = {
         "tools.tests.test_docs_consistency",
         "tools.tests.test_reference_audit",
     ),
+    "tools/ccfa/repro_container.py": (
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_repro_container",
+        "tools.tests.test_scripts",
+    ),
     "tools/ccfa/dashboard.py": (
         "tools.tests.test_dashboard",
         "tools.tests.test_docs_consistency",

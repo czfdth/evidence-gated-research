@@ -65,6 +65,7 @@ CCFA_WRAPPERS = {
     "ara_compile": "ara-compile.ps1",
     "ara_extract": "ara-extract.ps1",
     "reference_audit": "reference-audit.ps1",
+    "repro_container": "repro-container.ps1",
     "worktree_audit": "worktree-audit.ps1",
     "dashboard": "dashboard.ps1",
     "formal_check": "formal-check.ps1",
@@ -72,6 +73,7 @@ CCFA_WRAPPERS = {
     "stages": "stages.ps1",
     "archive_client": "archive.ps1",
     "compute": "compute.ps1",
+    "skillpack": "skillpack.ps1",
 }
 NEWPAPER_WRAPPER = "new-paper.ps1"
 NEWPAPER_MODULE = "newpaper.create"

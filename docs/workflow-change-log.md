@@ -208,3 +208,145 @@ rewrite historical entries.
 - tests:
   - `tools.tests.test_github_workflows`
 
+## WC-20261005T165734Z-12b19b01d3 - Split audit strictness from depth: add an optional workflow.assurance axis (draft | submission) to ccfa.yaml.
+
+- timestamp: `2026-10-05T16:57:34Z`
+- status: `complete`
+- author: `codex`
+- reason: 参考上游 ARIS 的 effort x assurance 设计：把深度和审计严格度混在一个 profile 里，会让高预算的论文在探测器未命中时静默跳过投稿审计。这也是我们踩过的 present=pass 同类事故。
+- files:
+  - `docs/reference-aris-2026-10-06.md`
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `ruff check tools`
+  - `tools.tests.test_dashboard + test_docs_consistency (61 tests)`
+  - `tools.tests.test_readiness (41 tests)`
+- notes: 默认行为不变：不写 assurance 时与之前完全一致；high-assurance 默认 submission。workflow-guide 段落待并发编辑落地后再补。
+
+## WC-20261005T170010Z-cea660be07 - Normalize README workflow-row line endings
+
+- timestamp: `2026-10-05T17:00:10Z`
+- status: `complete`
+- author: `codex`
+- reason: Remove CRLF trailing whitespace flagged by git diff --check on the newly added workflow rows.
+- files:
+  - `README.md`
+- tests:
+  - `git diff --check`
+
+## WC-20261005T170326Z-ae6a6b566f - Add a verifiable .skillpack format (sha256 manifest, deterministic zip, optional AES-256-GCM) after reviewing Modex-MH-Agent's encrypted skill pack.
+
+- timestamp: `2026-10-05T17:03:26Z`
+- status: `complete`
+- author: `codex`
+- reason: 用户要求参考他的加密技能包。实测其 283 个 .enc 用 AES-256-GCM + zlib 字典伪装、密钥服务端下发并绑定机器指纹：能挡住读提示词，但目录名/模板/脚本名全明文，骨架照样可见，且离线不可用、换硬件即失效、收到包的一方无法校验。抄可校验那一半，丢掉伪装与绑定。
+- files:
+  - `README.md`
+  - `docs/reference-modex-mh-agent-2026-10-06.md`
+  - `docs/skillpack-format.md`
+  - `scripts/skillpack.ps1`
+  - `tools/ccfa/skillpack.py`
+  - `tools/requirements.txt`
+  - `tools/tests/test_docs_consistency.py`
+  - `tools/tests/test_scripts.py`
+  - `tools/tests/test_skillpack.py`
+- tests:
+  - `ruff check tools`
+  - `tools.tests.test_docs_consistency`
+  - `tools.tests.test_skillpack (12 tests, including the encrypted round-trip)`
+- notes: 实测打包 ccf-common（16 文件）并在明文与加密两种模式下 verify 通过；加密包无口令返回 skillpack-locked。
+
+## WC-20261005T170408Z-0990e86d3a - Install the public venue template library and MiKTeX in CI
+
+- timestamp: `2026-10-05T17:04:08Z`
+- status: `complete`
+- author: `codex`
+- reason: The derivation and compile end-to-end suites were skipping on runners because the host ccf-latex-templates library and pdflatex were absent. Both are publicly installable (mikubaka88/CCFA-Skills, MiKTeX), so the tools job now installs them with continue-on-error; a failed install degrades to the existing explicit skips instead of a red job.
+- files:
+  - `.github/workflows/tests.yml`
+- tests:
+  - `tools.tests.test_github_workflows`
+
+## WC-20261005T170719Z-db032c0d3b - Add pinned container reproduction receipts
+
+- timestamp: `2026-10-05T17:07:19Z`
+- status: `complete`
+- author: `codex`
+- reason: Close the second-environment reproduction gap with a deterministic, network-disabled Docker runner and make repro-env validate the receipt instead of accepting prose.
+- files:
+  - `.github/workflows/repro-smoke.yml`
+  - `.github/workflows/tests.yml`
+  - `README.md`
+  - `docs/workflow-deficiency-checklist-2026-10-06.md`
+  - `docs/workflow-guide.md`
+  - `scripts/repro-container.ps1`
+  - `tools/ccfa/repro_container.py`
+  - `tools/ccfa/repro_env.py`
+  - `tools/ccfa/test_impact.py`
+  - `tools/tests/test_docs_consistency.py`
+  - `tools/tests/test_repro_container.py`
+  - `tools/tests/test_repro_env.py`
+  - `tools/tests/test_scripts.py`
+- tests:
+  - `tools.tests.test_docs_consistency`
+  - `tools.tests.test_github_workflows`
+  - `tools.tests.test_repro_container`
+  - `tools.tests.test_repro_env`
+  - `tools.tests.test_scripts`
+  - `tools.tests.test_test_impact`
+
+## WC-20261005T170947Z-5be2220993 - Expose gate-driven human checkpoints in standard readiness
+
+- timestamp: `2026-10-05T17:09:47Z`
+- status: `complete`
+- author: `codex`
+- reason: Standard-profile readiness reported human review as not-required even while proof/citation/figure gates were blocking; it now derives answerable human checkpoints from the actual gate failures without converting them to pass.
+- files:
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `tools.tests.test_readiness`
+
+## WC-20261005T171205Z-d13b046223 - Ignore generated readiness reports when checking git dirtiness
+
+- timestamp: `2026-10-05T17:12:05Z`
+- status: `complete`
+- author: `codex`
+- reason: A readiness run writes its own JSON/Markdown/error files under reviews/, which made the same report claim the paper tree was dirty. The generated report files are now excluded from the dirtiness calculation.
+- files:
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `tools.tests.test_readiness`
+
+## WC-20261005T171238Z-c91e5f2823 - Design the workbench app: five Figma-importable SVG screens generated from the shipped theme tokens, plus a UI spec.
+
+- timestamp: `2026-10-05T17:12:38Z`
+- status: `complete`
+- author: `codex`
+- reason: 用户要求用 Figma 设计 app。本机 Figma 插件已启用但没有配置 Figma MCP server，无法直接读写 Figma 文件；改为产出可导入 Figma 的 SVG 屏幕与设计说明，并把生成器接在同一份 theme.py 令牌上，保证设计稿不会与实现漂移。
+- files:
+  - `docs/design/2026-10-06-workbench-ui-spec.md`
+  - `docs/design/exports/01-workbench-empty.svg`
+  - `docs/design/exports/02-workbench-project.svg`
+  - `docs/design/exports/03-workbench-blocked.svg`
+  - `docs/design/exports/04-human-checkpoints.svg`
+  - `docs/design/exports/05-settings-dialog.svg`
+  - `docs/design/generate_mockups.py`
+- tests:
+  - `tools.tests.test_docs_consistency`
+- notes: 04-human-checkpoints 是新提的界面：数据来自 readiness.human_review.checkpoints，尚未在 Qt 里实现。
+
+## WC-20261005T171603Z-0bb348e1bc - Fail closed on an empty citation calibration gold set
+
+- timestamp: `2026-10-05T17:16:03Z`
+- status: `complete`
+- author: `codex`
+- reason: The calibration report treated zero gold rows as a threshold pass, which let missing live evidence masquerade as calibrated citation support.
+- files:
+  - `tools/ccfa/citation_calibration.py`
+  - `tools/tests/test_citation_calibration.py`
+- tests:
+  - `tools.tests.test_citation_calibration`
+

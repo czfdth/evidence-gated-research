@@ -1,4 +1,5 @@
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,19 @@ class ReproEnvTests(unittest.TestCase):
             "MiKTeX-pdfTeX 4.11 (MiKTeX 24.1)\n",
             encoding="utf-8",
         )
+        (self.root / "evidence" / "repro-container.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "status": "pass",
+                    "image": "python:3.12-slim@sha256:" + "a" * 64,
+                    "network": "none",
+                    "exit_code": 0,
+                    "manifest_sha256": "sha256:" + "b" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
         self.digest = "sha256:" + hashlib.sha256(
             (self.root / "tools" / "requirements.lock").read_bytes()
         ).hexdigest()
@@ -44,7 +58,8 @@ class ReproEnvTests(unittest.TestCase):
             "    evidence: evidence/pdflatex.txt\n"
             "container:\n"
             "  image: python:3.12-slim\n"
-            "  digest: sha256:" + "a" * 64 + "\n",
+            "  digest: sha256:" + "a" * 64 + "\n"
+            "  receipt: evidence/repro-container.json\n",
             encoding="utf-8",
         )
 
@@ -199,6 +214,37 @@ class ReproEnvTests(unittest.TestCase):
         )
         problems, _advisories = check(self.root)
         self.assertIn("repro-env-invalid-hash", self._codes(problems))
+
+    def test_missing_container_receipt_is_a_problem(self):
+        (self.root / "evidence" / "repro-container.json").unlink()
+        problems, _advisories = check(self.root)
+        self.assertIn(
+            "repro-env-container-receipt-missing",
+            self._codes(problems),
+        )
+
+    def test_failed_container_receipt_is_a_problem(self):
+        path = self.root / "evidence" / "repro-container.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["status"] = "fail"
+        payload["exit_code"] = 7
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        problems, _advisories = check(self.root)
+        self.assertIn(
+            "repro-env-container-not-pass",
+            self._codes(problems),
+        )
+
+    def test_container_image_mismatch_is_a_problem(self):
+        path = self.root / "evidence" / "repro-container.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["image"] = "python:3.11-slim@sha256:" + "c" * 64
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        problems, _advisories = check(self.root)
+        self.assertIn(
+            "repro-env-container-image-mismatch",
+            self._codes(problems),
+        )
 
     def test_duplicate_system_tool_is_a_problem(self):
         text = self.path.read_text(encoding="utf-8")

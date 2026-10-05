@@ -58,6 +58,16 @@ class CitationCalibrationTests(unittest.TestCase):
         self.assertEqual(report["missing"], ["1"])
         self.assertFalse(report["threshold_pass"])
 
+    def test_empty_gold_set_fails_closed(self):
+        self._write(self.gold, [])
+        self._write(self.predictions, [])
+
+        report = calibrate(self.gold, self.predictions)
+
+        self.assertEqual(report["gold_count"], 0)
+        self.assertEqual(report["error"], "gold-set-empty")
+        self.assertFalse(report["threshold_pass"])
+
 
 if __name__ == "__main__":
     unittest.main()

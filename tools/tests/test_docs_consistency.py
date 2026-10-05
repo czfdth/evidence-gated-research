@@ -71,6 +71,7 @@ CLI_WRAPPERS = {
     "ara_compile": "scripts/ara-compile.ps1",
     "ara_extract": "scripts/ara-extract.ps1",
     "reference_audit": "scripts/reference-audit.ps1",
+    "repro_container": "scripts/repro-container.ps1",
     "worktree_audit": "scripts/worktree-audit.ps1",
     "dashboard": "scripts/dashboard.ps1",
     "formal_check": "scripts/formal-check.ps1",
@@ -78,6 +79,7 @@ CLI_WRAPPERS = {
     "stages": "scripts/stages.ps1",
     "archive_client": "scripts/archive.ps1",
     "compute": "scripts/compute.ps1",
+    "skillpack": "scripts/skillpack.ps1",
 }
 NEWPAPER_ENTRY = "tools/newpaper/create.py"
 NEWPAPER_WRAPPER = "scripts/new-paper.ps1"

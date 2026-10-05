@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -158,6 +159,141 @@ def _check_tools(path: Path, paper_root: Path, tools: object) -> list:
     return problems
 
 
+def _check_container(
+    path: Path,
+    paper_root: Path,
+    container: object,
+) -> list:
+    if not isinstance(container, dict):
+        return [
+            problem(
+                "repro-env-invalid",
+                path,
+                None,
+                "container 必须是映射",
+            )
+        ]
+    problems = []
+    image = container.get("image")
+    digest = container.get("digest")
+    receipt = container.get("receipt")
+    if not is_nonempty_str(image):
+        problems.append(
+            problem(
+                "repro-env-invalid",
+                path,
+                None,
+                "container.image 必须是非空字符串",
+            )
+        )
+    if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
+        problems.append(
+            problem(
+                "repro-env-invalid-hash",
+                path,
+                None,
+                "container.digest 必须是 sha256:<64 hex>",
+            )
+        )
+    if not is_nonempty_str(receipt):
+        problems.append(
+            problem(
+                "repro-env-invalid",
+                path,
+                None,
+                "container.receipt 必须是非空相对路径",
+            )
+        )
+        return problems
+    if not is_nonempty_str(image) or not isinstance(digest, str):
+        return problems
+
+    receipt_path = (paper_root / receipt).resolve()
+    try:
+        receipt_path.relative_to(paper_root.resolve())
+    except ValueError:
+        problems.append(
+            problem(
+                "repro-env-container-receipt-escape",
+                path,
+                None,
+                f"container.receipt 逃出 paper_root: {receipt}",
+            )
+        )
+        return problems
+    if not receipt_path.is_file():
+        problems.append(
+            problem(
+                "repro-env-container-receipt-missing",
+                path,
+                None,
+                f"container receipt 不存在: {receipt}",
+            )
+        )
+        return problems
+    try:
+        payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        problems.append(
+            problem(
+                "repro-env-container-receipt-invalid",
+                path,
+                None,
+                f"container receipt 不可读: {exc}",
+            )
+        )
+        return problems
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        problems.append(
+            problem(
+                "repro-env-container-receipt-invalid",
+                path,
+                None,
+                "container receipt 必须是 version: 1 的对象",
+            )
+        )
+        return problems
+    expected_image = f"{image}@{digest}"
+    if payload.get("image") != expected_image:
+        problems.append(
+            problem(
+                "repro-env-container-image-mismatch",
+                path,
+                None,
+                f"receipt image 与台账不一致: {payload.get('image')!r} != {expected_image!r}",
+            )
+        )
+    if payload.get("status") != "pass" or payload.get("exit_code") != 0:
+        problems.append(
+            problem(
+                "repro-env-container-not-pass",
+                path,
+                None,
+                "container receipt 不是成功的第二环境复现",
+            )
+        )
+    if payload.get("network") != "none":
+        problems.append(
+            problem(
+                "repro-env-container-network",
+                path,
+                None,
+                "container receipt 没有记录 network=none",
+            )
+        )
+    manifest_sha = payload.get("manifest_sha256")
+    if not isinstance(manifest_sha, str) or _SHA256.fullmatch(manifest_sha) is None:
+        problems.append(
+            problem(
+                "repro-env-invalid-hash",
+                path,
+                None,
+                "container receipt 的 manifest_sha256 必须是 sha256:<64 hex>",
+            )
+        )
+    return problems
+
+
 def check(paper_root: Path, ledger: Path | None = None) -> tuple[list, list]:
     paper_root = Path(paper_root)
     path = Path(ledger) if ledger else paper_root / LEDGER_RELATIVE_PATH
@@ -284,36 +420,7 @@ def check(paper_root: Path, ledger: Path | None = None) -> tuple[list, list]:
                     )
     container = payload.get("container")
     if container is not None:
-        if not isinstance(container, dict):
-            problems.append(
-                problem(
-                    "repro-env-invalid",
-                    path,
-                    None,
-                    "container 必须是映射",
-                )
-            )
-        else:
-            image = container.get("image")
-            digest = container.get("digest")
-            if not is_nonempty_str(image):
-                problems.append(
-                    problem(
-                        "repro-env-invalid",
-                        path,
-                        None,
-                        "container.image 必须是非空字符串",
-                    )
-                )
-            if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
-                problems.append(
-                    problem(
-                        "repro-env-invalid-hash",
-                        path,
-                        None,
-                        "container.digest 必须是 sha256:<64 hex>",
-                    )
-                )
+        problems.extend(_check_container(path, paper_root, container))
     problems.extend(_check_tools(path, paper_root, payload.get("system_tools")))
     return problems, []
 

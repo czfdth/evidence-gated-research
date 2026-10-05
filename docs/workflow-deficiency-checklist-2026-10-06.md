@@ -11,7 +11,7 @@ This checklist turns the live GitHub comparison into explicit work items.
 | P0-1 | Keep the evidence-first moat instead of chasing automation | Policy adopted | `AGENTS.md` now requires every workflow change to carry a change-log entry; fake-pass detection is documented in `docs/fake-pass-detection.md` |
 | P0-2 | Publish fake-pass detection as a reusable artifact | Code + docs ready; publication pending | `tools/ccfa/cross_review.py` is the checker; `docs/fake-pass-detection.md` is the public-facing explanation |
 | P0-3a | Citation calibration has no live gold-set evidence | Blocked on gold data | The calibration tool exists and fails closed; a real gold/prediction JSONL pair must be produced and run |
-| P0-3b | Reproduction has no second-environment evidence | Blocked on second environment | Repro bundle/verifier exists; a clean second machine or CI run is still required |
+| P0-3b | Reproduction has no second-environment evidence | Code + live evidence resolved | `repro-container` runs the bundle in a pinned, network-disabled Docker image; the paper receipt `reviews/repro-container.json` records `status=pass`, `exit_code=0`, and `repro_env` validates it |
 | P0-3c | Proof and claim support still need human review | Blocked on humans | `proof-audit.yaml`, `citation-support.yaml`, `figure-support.yaml`, `human-coding-report.json` remain human tasks |
 | P0-4 | Worktree drift is not visible or controlled | Code-resolved; cleanup pending | `scripts/worktree-audit.ps1` lists covered/uncovered files; unrelated uncommitted work still needs a logged commit or discard decision |
 
