@@ -25,6 +25,9 @@ from ccfa_core.settings import (
     load_settings,
     save_settings,
 )
+from ccfa_core.workflow import WorkflowClient
+
+from . import theme
 
 
 class SettingsDialog(QDialog):
@@ -39,7 +42,25 @@ class SettingsDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+        self.setMinimumWidth(560)
+
+        title = QLabel("设置")
+        title.setObjectName("dialogTitle")
+        layout.addWidget(title)
+        note = QLabel("API key 只写入系统密钥环，settings.json 里只保存 key 名称。")
+        note.setProperty("role", "hint")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        provider_title = QLabel("模型 provider")
+        provider_title.setObjectName("sectionTitle")
+        layout.addWidget(provider_title)
         form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(6)
         self.name_edit = QLineEdit()
         self.base_url_edit = QLineEdit()
         self.model_edit = QLineEdit()
@@ -49,10 +70,10 @@ class SettingsDialog(QDialog):
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_edit.setPlaceholderText("留空则保留已有 key")
-        form.addRow("Provider name", self.name_edit)
+        form.addRow("Provider 名称", self.name_edit)
         form.addRow("Base URL", self.base_url_edit)
-        form.addRow("Model", self.model_edit)
-        form.addRow("Timeout (s)", self.timeout_spin)
+        form.addRow("模型", self.model_edit)
+        form.addRow("超时（秒）", self.timeout_spin)
         form.addRow("API key", self.key_edit)
         registry_row = QHBoxLayout()
         self.http_tools_path_edit = QLineEdit()
@@ -64,7 +85,23 @@ class SettingsDialog(QDialog):
             self._browse_http_tools
         )
         registry_row.addWidget(self.http_tools_browse_button)
-        form.addRow("HTTP tools", registry_row)
+        form.addRow("HTTP 工具", registry_row)
+
+        self.key_status_label = QLabel("未配置")
+        self.key_status_label.setObjectName("key_status_label")
+        self.key_status_label.setProperty("role", "hint")
+        form.addRow("密钥状态", self.key_status_label)
+
+        layout.addLayout(form)
+
+        layout.addSpacing(6)
+        workflow_title = QLabel("工作流")
+        workflow_title.setObjectName("sectionTitle")
+        layout.addWidget(workflow_title)
+        workflow_form = QFormLayout()
+        workflow_form.setContentsMargins(0, 0, 0, 0)
+        workflow_form.setHorizontalSpacing(12)
+        workflow_form.setVerticalSpacing(6)
 
         workflow_row = QHBoxLayout()
         self.workflow_root_edit = QLineEdit()
@@ -81,7 +118,7 @@ class SettingsDialog(QDialog):
             self._browse_workflow_root
         )
         workflow_row.addWidget(self.workflow_root_browse_button)
-        form.addRow("工作流目录", workflow_row)
+        workflow_form.addRow("工作流目录", workflow_row)
 
         python_row = QHBoxLayout()
         self.workflow_python_edit = QLineEdit()
@@ -98,27 +135,40 @@ class SettingsDialog(QDialog):
             self._browse_workflow_python
         )
         python_row.addWidget(self.workflow_python_browse_button)
-        form.addRow("Python 解释器", python_row)
+        workflow_form.addRow("Python 解释器", python_row)
 
-        layout.addLayout(form)
+        test_row = QHBoxLayout()
+        self.workflow_test_button = QPushButton("测试工作流连接")
+        self.workflow_test_button.setObjectName("workflow_test_button")
+        self.workflow_test_button.clicked.connect(self._test_workflow)
+        test_row.addWidget(self.workflow_test_button)
+        self.workflow_status_label = QLabel("")
+        self.workflow_status_label.setObjectName("workflow_status_label")
+        self.workflow_status_label.setProperty("role", "hint")
+        test_row.addWidget(self.workflow_status_label, stretch=1)
+        workflow_form.addRow("", test_row)
 
-        self.key_status_label = QLabel("未配置")
-        self.key_status_label.setObjectName("key_status_label")
-        layout.addWidget(self.key_status_label)
+        layout.addLayout(workflow_form)
+
         self.error_label = QLabel("")
         self.error_label.setObjectName("error_label")
-        self.error_label.setStyleSheet("color: #b00020;")
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet(f"color: {theme.PROBLEM};")
         layout.addWidget(self.error_label)
 
+        layout.addStretch(1)
         buttons = QHBoxLayout()
+        buttons.addStretch(1)
         self.save_button = QPushButton("保存")
         self.save_button.setObjectName("save_button")
+        self.save_button.setProperty("role", "primary")
+        self.save_button.setDefault(True)
         self.save_button.clicked.connect(self._on_save)
-        buttons.addWidget(self.save_button)
         self.cancel_button = QPushButton("取消")
         self.cancel_button.setObjectName("cancel_button")
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.save_button)
         layout.addLayout(buttons)
 
     def _load_current(self) -> None:
@@ -185,6 +235,19 @@ class SettingsDialog(QDialog):
         )
         if selected:
             self.workflow_python_edit.setText(selected)
+
+    def _test_workflow(self) -> None:
+        """Probe the workflow using the values currently in the dialog."""
+
+        client = WorkflowClient(
+            self.workflow_root_edit.text().strip() or None,
+            python=self.workflow_python_edit.text().strip() or None,
+        )
+        ok, detail = client.probe()
+        self.workflow_status_label.setText(detail)
+        self.workflow_status_label.setStyleSheet(
+            "color: #0b6b2f;" if ok else "color: #b00020;"
+        )
 
     def _registry_path(self, configured: str) -> Path:
         path = Path(configured)

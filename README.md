@@ -111,6 +111,7 @@ git -C $paper status --short
 | `tools/ccfa/session_replay.py` | 串联 passport、run ledger、artifact store 与 review state，生成只读 session replay HTML | `scripts/session-replay.ps1` |
 | `tools/ccfa/research_wiki.py` | 校验跨项目 Markdown wiki、typed graph edges；支持 BibTeX sync、catalog/gap map 重建、搜索和 query pack | `scripts/research-wiki.ps1` |
 | `tools/ccfa/test_impact.py` | 按 git diff 选择最小相关测试集；未知路径或共享核心模块自动回退全量测试 | `scripts/test-impact.ps1` |
+| `tools/ccfa/change_log.py` | 强制记录每次工作流修改；append-only JSONL + 生成 Markdown + fail-closed 覆盖检查 | `scripts/change-log.ps1` |
 | `tools/ccfa/archive_client.py` | Zenodo/OSF/ORCID 归档薄客户端；内置 DNS-over-HTTPS 绕行，只有拿到 DOI 才报告 published | `scripts/archive.ps1` |
 | `tools/ccfa/compute.py` | 探测本机 CPU/内存/GPU/Docker 与远程 Slurm/PBS 后端，在墙钟预算内执行 pilot 并记录 `wall_seconds`/`gpu_minutes` | `scripts/compute.ps1` |
 
@@ -318,6 +319,17 @@ scripts/archive.ps1 probe
 给 `scripts/doctor.ps1` 加 `--strict` 会把缺失的可选依赖也判为 problem，是"一次装齐"的验收口径；`compute.ps1 probe` 报告本机与远程算力，`archive.ps1 probe` 报告 Zenodo/OSF/ORCID 的传输可达性。
 
 ## 跑测试
+
+修改工具、脚本、CI、skill、checklist 或 workflow 文档时，必须在同一次提交里
+追加 `docs/workflow-change-log.jsonl` 记录，否则 CI 的 `change-log` 检查会失败：
+
+```powershell
+scripts/change-log.ps1 add `
+    --summary "<改了什么>" --reason "<为什么改>" `
+    --file tools/ccfa/example.py `
+    --test "tools.tests.test_example"
+scripts/change-log.ps1 check --base origin/master
+```
 
 日常不要手写测试模块清单。先看影响计划，再运行最小测试集：
 

@@ -230,8 +230,8 @@ class ChatEndToEnd(unittest.TestCase):
         self.assertTrue((self.project_dir / "ccfa.yaml").is_file())
         self.assertIsNotNone(self.panel._tool_bridge)
         self.assertEqual(
-            self.panel._tool_bridge.project_root,
-            self.project_dir,
+            Path(self.panel._tool_bridge.project_root).resolve(),
+            Path(self.project_dir).resolve(),
         )
         self.assertIn("chat-e2e", self.window.project_list.currentItem().text())
 

@@ -194,3 +194,36 @@ class WorkflowClient:
         except json.JSONDecodeError:
             return None
         return value if isinstance(value, dict) else None
+
+    def probe(self) -> tuple[bool, str]:
+        """Check that this client can actually reach the workflow.
+
+        The installed app has no repository to fall back on, so the user needs
+        a way to tell whether the configured workflow directory works before
+        trusting the project list. Reads the stage table, which every workflow
+        checkout can serve.
+        """
+
+        if self.python is None:
+            return (
+                False,
+                "找不到工作流解释器：请选择包含 tools/.venv 的工作流目录",
+            )
+        try:
+            payload = self.json("stages", ("--mode", "conference"))
+        except WorkflowError as exc:
+            return False, str(exc)
+        # A call can still succeed through an inherited PYTHONPATH, so a
+        # successful probe only counts when the configured root is a real
+        # workflow checkout.
+        if not (self.root / "tools" / "ccfa").is_dir():
+            return (
+                False,
+                f"不是工作流目录：{self.root}（缺少 tools/ccfa）",
+            )
+        stages = payload.get("stages")
+        count = len(stages) if isinstance(stages, list) else 0
+        return (
+            True,
+            f"OK：{self.root}（{count} 个 stage，解释器 {self.python.name}）",
+        )

@@ -426,6 +426,23 @@ $env:PYTHONPATH = (Resolve-Path ../tools).Path
 
 ## 10. 开发与测试
 
+每次修改 `tools/`、`scripts/`、`app/`、`.github/`、`automation/`、
+`checklists/`、workflow 文档或根工作流文件，都必须在同一次提交里追加变更日志。
+未记录日志的改动会被 `change-log check` 阻断：
+
+```powershell
+scripts/change-log.ps1 add `
+    --summary "<改了什么>" `
+    --reason "<为什么改>" `
+    --file tools/ccfa/example.py `
+    --test "tools.tests.test_example"
+scripts/change-log.ps1 check --base origin/master
+scripts/change-log.ps1 render
+```
+
+`docs/workflow-change-log.jsonl` 是 append-only source of truth；
+`docs/workflow-change-log.md` 是生成物。不要删改旧日志来绕过检查。
+
 修改工具后只运行新增、修改模块及直接消费者：
 
 ```powershell

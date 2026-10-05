@@ -51,6 +51,7 @@ CCFA_WRAPPERS = {
     "readiness": "readiness.ps1",
     "research_ledgers": "research-ledgers.ps1",
     "test_impact": "test-impact.ps1",
+    "change_log": "change-log.ps1",
     "experiment_loop": "experiment-loop.ps1",
     "post_submission": "post-submission.ps1",
     "rigor": "rigor-rubric.ps1",

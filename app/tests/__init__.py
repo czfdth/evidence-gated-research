@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -10,6 +14,37 @@ from ccfa_core.projects import gate_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = REPO_ROOT / "ccfa.yaml.template"
+
+FIXTURE_TEX = (
+    "\\documentclass{article}\n"
+    "\\begin{document}fixture\\end{document}\n"
+)
+FIXTURE_STY = "% minimal deterministic test fixture\n"
+
+
+@contextmanager
+def template_codex_home():
+    """Yield a CODEX_HOME that has a minimal ``ccf-latex-templates`` library.
+
+    The workflow resolves venue templates from
+    ``$CODEX_HOME/skills/ccf-latex-templates``. That tree exists on a
+    researcher's machine but not on a clean CI runner, so tests that scaffold a
+    project must not depend on it. When the caller already supplies a usable
+    CODEX_HOME (an explicit fixture), it is left untouched.
+    """
+
+    existing = os.environ.get("CODEX_HOME", "")
+    if existing and (Path(existing) / "skills" / "ccf-latex-templates").is_dir():
+        yield existing
+        return
+
+    with tempfile.TemporaryDirectory() as temporary:
+        template = Path(temporary) / "skills" / "ccf-latex-templates" / "NeurIPS"
+        template.mkdir(parents=True)
+        (template / "neurips_2026.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (template / "neurips_2026.sty").write_text(FIXTURE_STY, encoding="utf-8")
+        with mock.patch.dict(os.environ, {"CODEX_HOME": temporary}, clear=False):
+            yield temporary
 
 
 def project_state(
@@ -73,7 +108,8 @@ def create_project(papers_root, slug: str, **kwargs) -> Path:
     if kwargs.get("deadline"):
         args += ["--deadline", str(kwargs["deadline"])]
 
-    result = WorkflowClient().run("newpaper.create", args)
+    with template_codex_home():
+        result = WorkflowClient().run("newpaper.create", args)
     if result.exit_code != 0:
         raise WorkflowError(
             "newpaper.create 失败"

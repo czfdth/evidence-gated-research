@@ -13,6 +13,7 @@
 
 List only the tests or checks relevant to the changed files.
 
+- [ ] `scripts/change-log.ps1 check --base origin/master`
 - [ ] `scripts/test-impact.ps1 plan --base origin/master`
 - [ ] `scripts/test-impact.ps1 run --base origin/master`
 - [ ] `git diff --check`

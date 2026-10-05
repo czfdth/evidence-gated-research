@@ -116,6 +116,28 @@ class WorkflowClientTests(unittest.TestCase):
 
         self.assertEqual(client.python, interpreter)
 
+    def test_probe_succeeds_against_the_real_workflow(self):
+        ok, detail = self.client.probe()
+
+        self.assertTrue(ok, detail)
+        self.assertIn("个 stage", detail)
+
+    def test_probe_reports_a_missing_interpreter(self):
+        client = WorkflowClient(self.root, python=self.root / "nope.exe")
+
+        ok, detail = client.probe()
+
+        self.assertFalse(ok)
+        self.assertIn("解释器", detail)
+
+    def test_probe_reports_a_directory_that_is_not_a_workflow(self):
+        client = WorkflowClient(self.root / "not-a-repo")
+
+        ok, detail = client.probe()
+
+        self.assertFalse(ok)
+        self.assertTrue(detail)
+
 
 if __name__ == "__main__":
     unittest.main()

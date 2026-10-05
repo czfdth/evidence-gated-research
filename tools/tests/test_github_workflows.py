@@ -218,6 +218,39 @@ class GitHubWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/test-impact.ps1 run --suite tools --full", workflow)
         self.assertIn("scripts/test-impact.ps1 run --suite app --full", workflow)
 
+    def test_ci_change_log_check_is_fail_closed(self):
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Check workflow change log", workflow)
+        self.assertIn("ccfa.change_log check", workflow)
+        self.assertIn("github.event.pull_request.base.sha", workflow)
+        self.assertIn("github.event.before", workflow)
+
+    def test_ci_compile_list_has_valid_line_continuations(self):
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+        payload = yaml.safe_load(workflow)
+        step = next(
+            item
+            for item in payload["jobs"]["tools-impact"]["steps"]
+            if item.get("name") == "Compile core modules"
+        )
+        lines = [
+            line.strip()
+            for line in step["run"].splitlines()
+            if line.strip().startswith("tools/")
+        ]
+        self.assertTrue(lines)
+        for line in lines[:-1]:
+            self.assertTrue(
+                line.endswith("`"),
+                f"缺少 PowerShell 续行符: {line}",
+            )
+        self.assertFalse(lines[-1].endswith("`"))
+
     def test_actions_use_current_node24_compatible_majors(self):
         workflow_text = "\n".join(
             path.read_text(encoding="utf-8")
