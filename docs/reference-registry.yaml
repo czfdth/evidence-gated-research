@@ -1,0 +1,31 @@
+version: 1
+# Source-level references audited in docs/research-workflow-reference-audit-2026-10-05.md.
+# A scheduled workflow compares these pins with each repository's latest commit.
+projects:
+  - id: ai-research-skills
+    repository: Orchestra-Research/AI-Research-SKILLs
+    pinned_commit: 773a52944ba4747a18bd4ae9ade53fff041adcbc
+    source_doc: docs/research-workflow-reference-audit-2026-10-05.md
+    note: two-loop research-state and ARA compiler reference
+  - id: academic-research-skills
+    repository: Imbad0202/academic-research-skills
+    pinned_commit: 6ab4b03bf70a118a1b3ee7f3263ed9f19031061b
+    source_doc: docs/research-workflow-reference-audit-2026-10-05.md
+    note: human-in-the-loop ledgers, governance, and citation calibration reference
+  - id: ara-paperbench
+    repository: AmberLJC/ara-paperbench
+    pinned_commit: 62e9b54b2d4efe45b97f25676a16784530dd552a
+    source_doc: docs/research-workflow-reference-audit-2026-10-05.md
+    note: ARA artifact layout and expert rubric reference
+  - id: open-science
+    repository: aipoch/open-science
+    pinned_commit: bd9a61a80a73df317573b15ce1a32f1d007cba9b
+    source_doc: docs/research-workflow-reference-audit-2026-10-05.md
+    note: local-first immutable artifact and replay reference
+    drift_review: docs/reference-drift-2026-10-06.md
+  - id: aris
+    repository: wanshuiyin/Auto-claude-code-research-in-sleep
+    pinned_commit: 3b19a22dc5a64c983d2eafd6c2c94000fadc4f8d
+    source_doc: docs/research-workflow-reference-audit-2026-10-05.md
+    note: proof orchestration, typed research graph, resubmit, and talk reference
+    drift_review: docs/reference-drift-2026-10-06.md

@@ -165,3 +165,46 @@ rewrite historical entries.
 - tests:
   - `tools.tests.test_scripts`
 
+## WC-20261005T165530Z-89b92885fa - Add budgeted pilot execution and periodic upstream reference audit
+
+- timestamp: `2026-10-05T16:55:30Z`
+- status: `complete`
+- author: `codex`
+- reason: Close the remaining mechanically addressable comparison gaps: the experiment loop now hands a declared pilot to the budgeted executor, and pinned source-audit references are checked monthly instead of relying on a prose promise.
+- files:
+  - `.github/workflows/reference-audit.yml`
+  - `.github/workflows/tests.yml`
+  - `README.md`
+  - `docs/reference-drift-2026-10-06.md`
+  - `docs/reference-registry.yaml`
+  - `docs/workflow-deficiency-checklist-2026-10-06.md`
+  - `docs/workflow-guide.md`
+  - `scripts/reference-audit.ps1`
+  - `tools/ccfa/experiment_loop.py`
+  - `tools/ccfa/reference_audit.py`
+  - `tools/ccfa/test_impact.py`
+  - `tools/tests/test_docs_consistency.py`
+  - `tools/tests/test_experiment_loop.py`
+  - `tools/tests/test_github_workflows.py`
+  - `tools/tests/test_reference_audit.py`
+  - `tools/tests/test_scripts.py`
+- tests:
+  - `tools.tests.test_docs_consistency`
+  - `tools.tests.test_experiment_loop`
+  - `tools.tests.test_github_workflows`
+  - `tools.tests.test_reference_audit`
+  - `tools.tests.test_scripts`
+  - `tools.tests.test_test_impact`
+
+## WC-20261005T165648Z-8cf3d9d75a - Skip the private change-log gate assertion on the public mirror
+
+- timestamp: `2026-10-05T16:56:48Z`
+- status: `complete`
+- author: `codex`
+- reason: The mirror drops the workflow change-log step because its diff is not the private commit diff, so the fail-closed assertion is private-only. A .public-mirror marker makes the test skip there while it still runs in the private repository.
+- files:
+  - `automation/public-docs/PUBLIC-MIRROR.md`
+  - `tools/tests/test_github_workflows.py`
+- tests:
+  - `tools.tests.test_github_workflows`
+

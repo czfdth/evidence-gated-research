@@ -97,7 +97,13 @@ def _assert_no_argparse_failure(testcase, result, command):
 class GitHubWorkflowTests(unittest.TestCase):
     def test_main_workflows_are_valid_yaml(self):
         workflow_dir = ROOT / ".github" / "workflows"
-        expected = {"tests.yml", "paper-check.yml", "repro-smoke.yml", "release.yml"}
+        expected = {
+            "tests.yml",
+            "paper-check.yml",
+            "repro-smoke.yml",
+            "reference-audit.yml",
+            "release.yml",
+        }
 
         self.assertEqual({path.name for path in workflow_dir.glob("*.yml")}, expected)
         for path in workflow_dir.glob("*.yml"):
@@ -219,6 +225,11 @@ class GitHubWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/test-impact.ps1 run --suite app --full", workflow)
 
     def test_ci_change_log_check_is_fail_closed(self):
+        if (ROOT / ".public-mirror").is_file():
+            self.skipTest(
+                "the public mirror intentionally drops the private change-log gate"
+            )
+
         workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
             encoding="utf-8"
         )

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from ccfa import compute, run_log
 from ccfa.cli import Problem, emit, tool_error
 from ccfa.ledger import is_nonempty_str, load_ledger, missing_fields, problem
 
@@ -66,6 +67,7 @@ OUTER_FIELDS = (
     "next_action",
 )
 OUTER_DECISIONS = {"pending", "continue", "pivot", "write", "stop"}
+PILOT_COMMAND_FIELD = "pilot_command"
 PLACEHOLDER = re.compile(
     r"(?<![a-z0-9])(pending|tbd|todo|placeholder|"
     r"to[ -]be[ -]determined)(?![a-z0-9])",
@@ -205,6 +207,17 @@ def _validate_ideas(
                 problem("experiment-loop-invalid", path, None, f"{idea_id}: status 非法")
             )
             continue
+        if status == "pilot-planned":
+            command = idea.get(PILOT_COMMAND_FIELD)
+            if not _string_list(command):
+                problems.append(
+                    problem(
+                        "experiment-loop-invalid",
+                        path,
+                        None,
+                        f"{idea_id}: pilot-planned 需要非空 pilot_command 字符串数组",
+                    )
+                )
         if status in {"pilot-planned", "pilot-running", "promoted", "rejected", "parked"}:
             missing_pilot = missing_fields(idea, PILOT_FIELDS)
             if missing_pilot:
@@ -595,10 +608,17 @@ def _budgeted_command(idea: dict) -> str | None:
     gpu_flag = ""
     if isinstance(gpus, int) and not isinstance(gpus, bool) and gpus > 0:
         gpu_flag = f" --gpus {gpus}"
+    pilot_command = _pilot_command(idea)
+    rendered = " ".join(pilot_command) if pilot_command else "<命令>"
     return (
         "scripts/compute.ps1 run --paper-root <paper-root> "
-        f"--minutes {budget:g}{gpu_flag} -- <命令>"
+        f"--minutes {budget:g}{gpu_flag} -- {rendered}"
     )
+
+
+def _pilot_command(idea: dict) -> list[str] | None:
+    command = idea.get(PILOT_COMMAND_FIELD)
+    return list(command) if _string_list(command) else None
 
 
 def next_actions(paper_root: Path) -> dict:
@@ -630,6 +650,7 @@ def next_actions(paper_root: Path) -> dict:
                     "id": idea.get("id"),
                     "action": "运行 pilot；完成后记录 run_ids 与 decision",
                     "suggested_command": _budgeted_command(idea),
+                    "command": _pilot_command(idea),
                 }
             )
         elif idea.get("status") == "pilot-running":
@@ -667,15 +688,123 @@ def next_actions(paper_root: Path) -> dict:
     return {"pilot": pilot, "inner": inner, "outer": outer}
 
 
+def run_next(paper_root: Path, *, execute: bool = False) -> dict:
+    """Run the first planned pilot through the budgeted local executor.
+
+    The executor records both a run-log entry and a compute-ledger entry. It
+    deliberately does not update ``run_ids`` or promote an idea: those are
+    scientific decisions that still require the recorded result and a human
+    decision.
+    """
+    paper_root = Path(paper_root).resolve()
+    payload, problems, advisories = _load_payload(paper_root)
+    if payload is None:
+        detail = problems[0].message if problems else advisories[0].message
+        raise ValueError(detail)
+    checked, _checked_advisories = check(paper_root)
+    if checked:
+        first = checked[0]
+        raise ValueError(
+            f"experiment-loop 台账存在问题: {first.code}: {first.message}"
+        )
+    if payload.get("not_applicable") is True:
+        raise ValueError(
+            "experiment-loop 标记为 not_applicable，没有可运行的 pilot"
+        )
+
+    idea = next(
+        (
+            item
+            for item in payload.get("ideas", [])
+            if isinstance(item, dict) and item.get("status") == "pilot-planned"
+        ),
+        None,
+    )
+    if idea is None:
+        raise ValueError("没有 status=pilot-planned 的 idea")
+    command = _pilot_command(idea)
+    if command is None:
+        raise ValueError(f"{idea.get('id')}: pilot_command 缺失或非法")
+    budget = idea.get("pilot_budget_minutes")
+    if (
+        isinstance(budget, bool)
+        or not isinstance(budget, (int, float))
+        or budget <= 0
+    ):
+        raise ValueError(f"{idea.get('id')}: pilot_budget_minutes 必须是正数")
+    gpus = idea.get("pilot_gpus", 0)
+    if isinstance(gpus, bool) or not isinstance(gpus, int) or gpus < 0:
+        raise ValueError(f"{idea.get('id')}: pilot_gpus 必须是非负整数")
+
+    result = {
+        "status": "dry-run" if not execute else "executed",
+        "idea_id": idea.get("id"),
+        "command": command,
+        "budget_minutes": budget,
+        "gpus": gpus,
+    }
+    if not execute:
+        result["note"] = (
+            "加 --execute 才会真正运行；结果仍需写回 run_ids 与 decision"
+        )
+        return result
+
+    last_attempt = {"value": None}
+
+    def budget_runner(argv: list[str], cwd: Path) -> tuple[int, str]:
+        attempt = compute.run_local(
+            argv,
+            budget_minutes=float(budget),
+            gpus_used=gpus,
+            cwd=cwd,
+        )
+        compute.append_attempt(cwd, attempt)
+        last_attempt["value"] = attempt
+        return attempt.returncode, ""
+
+    run_id, record = run_log.run_command(
+        command,
+        paper_root / "experiments" / "log",
+        paper_root,
+        config=Path("data/experiment-loop.yaml"),
+        notes=f"experiment-loop pilot {idea.get('id')}",
+        purpose="experiment",
+        policy={
+            "pilot_id": idea.get("id"),
+            "pilot_budget_minutes": budget,
+            "pilot_gpus": gpus,
+            "executor": "ccfa.compute.run_local",
+        },
+        runner=budget_runner,
+    )
+    attempt = last_attempt["value"]
+    result.update(
+        {
+            "run_id": run_id,
+            "run_status": record.get("status"),
+            "exit_code": record.get("exit_code"),
+            "timed_out": bool(getattr(attempt, "timed_out", False)),
+            "compute_ledger": str(paper_root / compute.COMPUTE_LEDGER),
+            "note": "运行已留档；请根据结果填写 run_ids、result 与 decision",
+        }
+    )
+    return result
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="校验 pilot 筛选与内层/外层实验循环台账")
     parser.add_argument(
         "action",
-        choices=("check", "next"),
+        choices=("check", "next", "run-next"),
         nargs="?",
         default="check",
     )
     parser.add_argument("--paper-root", default=".")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="run-next 默认只预演；加此参数才在预算内执行 pilot",
+    )
     return parser
 
 
@@ -688,6 +817,13 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError) as exc:
             return tool_error(str(exc))
         return 0
+    if args.action == "run-next":
+        try:
+            result = run_next(paper_root, execute=args.execute)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except (OSError, ValueError) as exc:
+            return tool_error(str(exc))
+        return 1 if result.get("exit_code") not in (None, 0) else 0
     try:
         problems, advisories = check(paper_root)
     except (OSError, ValueError) as exc:

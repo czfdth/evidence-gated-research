@@ -1,11 +1,12 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
-from ccfa.experiment_loop import check, next_actions
+from ccfa.experiment_loop import check, next_actions, run_next
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -199,6 +200,7 @@ class ExperimentLoopTests(unittest.TestCase):
     def test_next_actions_reports_pending_work(self):
         payload = self._valid_loop()
         payload["ideas"][0]["status"] = "pilot-planned"
+        payload["ideas"][0]["pilot_command"] = ["python", "-c", "print('pilot')"]
         payload["inner_loop"][0].update({"result": "pending", "decision": "pending"})
         payload["outer_loop"][0].update({"decision": "pending"})
         self._write_loop(payload)
@@ -214,6 +216,7 @@ class ExperimentLoopTests(unittest.TestCase):
         payload["ideas"][0]["status"] = "pilot-planned"
         payload["ideas"][0]["pilot_budget_minutes"] = 45
         payload["ideas"][0]["pilot_gpus"] = 1
+        payload["ideas"][0]["pilot_command"] = ["python", "-c", "print('pilot')"]
         self._write_loop(payload)
 
         command = next_actions(self.paper)["pilot"][0]["suggested_command"]
@@ -221,6 +224,50 @@ class ExperimentLoopTests(unittest.TestCase):
         self.assertIn("compute.ps1 run", command)
         self.assertIn("--minutes 45", command)
         self.assertIn("--gpus 1", command)
+        self.assertIn("print('pilot')", command)
+
+    def test_pilot_planned_requires_command(self):
+        payload = self._valid_loop()
+        payload["ideas"][0]["status"] = "pilot-planned"
+        self._write_loop(payload)
+
+        problems, _advisories = check(self.paper)
+
+        self.assertIn(
+            "experiment-loop-invalid",
+            [problem.code for problem in problems],
+        )
+
+    def test_run_next_dry_run_does_not_create_outputs(self):
+        payload = self._valid_loop()
+        payload["ideas"][0]["status"] = "pilot-planned"
+        payload["ideas"][0]["pilot_command"] = ["python", "-c", "print('pilot')"]
+        self._write_loop(payload)
+
+        result = run_next(self.paper)
+
+        self.assertEqual(result["status"], "dry-run")
+        self.assertEqual(result["idea_id"], "I1")
+        self.assertFalse((self.paper / "experiments" / "log" / "compute-ledger.jsonl").exists())
+
+    def test_run_next_executes_and_records_both_ledgers(self):
+        payload = self._valid_loop()
+        payload["ideas"][0]["status"] = "pilot-planned"
+        payload["ideas"][0]["pilot_command"] = [
+            sys.executable,
+            "-c",
+            "print('pilot')",
+        ]
+        self._write_loop(payload)
+
+        result = run_next(self.paper, execute=True)
+
+        self.assertEqual(result["status"], "executed")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertTrue(
+            (self.paper / "experiments" / "log" / f"{result['run_id']}.json").is_file()
+        )
+        self.assertTrue((self.paper / "experiments" / "log" / "compute-ledger.jsonl").is_file())
 
     def test_running_pilot_has_no_suggested_command(self):
         payload = self._valid_loop()

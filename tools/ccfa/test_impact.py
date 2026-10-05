@@ -130,6 +130,10 @@ _TOOLS_EXACT = {
         "tools.tests.test_docs_consistency",
         "tools.tests.test_session_replay",
     ),
+    "tools/ccfa/reference_audit.py": (
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_reference_audit",
+    ),
     "tools/ccfa/dashboard.py": (
         "tools.tests.test_dashboard",
         "tools.tests.test_docs_consistency",

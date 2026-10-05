@@ -181,12 +181,17 @@ scripts/provenance.ps1 --store "$paper/data/provenance.json" `
 ```powershell
 scripts/statistics.ps1 --paper-root $paper
 scripts/experiment-loop.ps1 check --paper-root $paper
+scripts/experiment-loop.ps1 run-next --paper-root $paper
+scripts/experiment-loop.ps1 run-next --paper-root $paper --execute
 scripts/research-state.ps1 check --paper-root $paper
 ```
 
 `data/experiment-loop.yaml` 记录 8-12 个候选、pilot 预算与 kill criterion，
 以及内层 keep/revert/continue 和外层 continue/pivot/write 决策。先用
-`experiment-loop next` 读取下一批待办动作；纯 SoK 或不含实验的论文应写明
+`experiment-loop next` 读取下一批待办动作；`run-next` 先预演，加 `--execute`
+后才会在 `pilot_budget_minutes` 内通过 `compute.py` 执行命令，并同时写入
+run-log 与 compute ledger。执行结果仍需人工写回 `run_ids`、`result` 和
+`decision`，工具不会替人开释。纯 SoK 或不含实验的论文应写明
 `not_applicable_reason`，不要把空台账伪装成完成。
 
 涉及人工编码时，在这一阶段准备双人编码协议，不要等结果出来后再定义标签。
@@ -461,6 +466,17 @@ scripts/change-log.ps1 render
 scripts/worktree-audit.ps1 --base origin/master --format markdown
 scripts/worktree-audit.ps1 --base origin/master --strict
 ```
+
+参照仓库漂移审计：
+
+```powershell
+scripts/reference-audit.ps1 list
+scripts/reference-audit.ps1 check --strict
+```
+
+`docs/reference-registry.yaml` 固定已做源码审计的 commit。月度 workflow 发现
+上游有新 commit 时会 fail closed；此时需要人读 diff、更新本地对齐结论和 pin，
+不能把“上游有更新”自动当作“已经完成对齐”。
 
 修改工具后只运行新增、修改模块及直接消费者：
 

@@ -91,6 +91,7 @@ jobs:
             tools/ccfa/post_submission.py `
             tools/ccfa/proof_orchestrator.py `
             tools/ccfa/proof_run.py `
+            tools/ccfa/reference_audit.py `
             tools/ccfa/readiness.py `
             tools/ccfa/repro_package.py `
             tools/ccfa/research_ledgers.py `

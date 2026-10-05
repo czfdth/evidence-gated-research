@@ -20,9 +20,9 @@ This checklist turns the live GitHub comparison into explicit work items.
 | # | Deficiency | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | P1-1 | Automatic ARA semantic extraction front-end | Deterministic front-end added | `tools/ccfa/ara_extract.py` maps local tex/bib/figure/run/claim/exploration inputs into `ara-input/` and reports unresolved semantics |
-| P1-2 | Inner experiment loop is not truly automatic | Partially addressed | `experiment-loop` records decisions; a real compute-backed driver still needs to connect to `compute.py`/`queue.py` |
+| P1-2 | Inner experiment loop is not truly automatic | Code-resolved | `experiment-loop run-next` previews or executes a `pilot-planned` command through `compute.py`, enforcing `pilot_budget_minutes`, writing run-log and compute ledger; result/decision remains human |
 | P1-3 | Portability: no pipx/console entry | Resolved | Root `pyproject.toml` + `ccfa.dispatch:run` expose `ccfa <module> ...`; devcontainer is still optional |
-| P1-4 | Reference audit is not periodic | Process defined | Re-run the upstream source audit when a reference project publishes a new method-level change; no scheduler yet |
+| P1-4 | Reference audit is not periodic | Code-resolved | `docs/reference-registry.yaml` pins audited commits; `reference-audit.yml` checks monthly and fails closed on upstream drift |
 
 ## P2
 
@@ -32,6 +32,7 @@ This checklist turns the live GitHub comparison into explicit work items.
 | P2-2 | Desktop packaging | Partially addressed by existing workbench work | Packaging scripts exist in the workbench track; this checklist does not duplicate them |
 | P2-3 | Too many tools increases maintenance | Controlled but not reduced | New change-log and worktree-audit checks make changes visible; consolidation is still a future cleanup task |
 | P2-4 | Live artifact badge and DOI evidence absent | Blocked on external archive | `artifact-badge` and `artifact-store` exist; third-party evaluated/reusable evidence and DOI must be obtained |
+| P2-5 | open-science added advisory cross-language artifact dependency edges | Recorded, not yet aligned | See `docs/reference-drift-2026-10-06.md`; do not turn an inferred dependency into verified provenance without runtime file evidence |
 
 ## Current Non-Goals
 
