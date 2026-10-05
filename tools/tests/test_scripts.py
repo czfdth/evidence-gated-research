@@ -53,6 +53,10 @@ CCFA_WRAPPERS = {
     "test_impact": "test-impact.ps1",
     "change_log": "change-log.ps1",
     "experiment_loop": "experiment-loop.ps1",
+    "experiment_optimizer": "experiment-optimize.ps1",
+    "external_adapters": "external-adapters.ps1",
+    "long_task": "long-task.ps1",
+    "skill_registry": "skill-registry.ps1",
     "post_submission": "post-submission.ps1",
     "rigor": "rigor-rubric.ps1",
     "proof_orchestrator": "proof-orchestrator.ps1",
@@ -64,6 +68,8 @@ CCFA_WRAPPERS = {
     "research_state": "research-state.ps1",
     "ara_compile": "ara-compile.ps1",
     "ara_extract": "ara-extract.ps1",
+    "autoresearch": "autoresearch.ps1",
+    "claim_extract": "claim-extract.ps1",
     "reference_audit": "reference-audit.ps1",
     "repro_container": "repro-container.ps1",
     "worktree_audit": "worktree-audit.ps1",
@@ -74,6 +80,7 @@ CCFA_WRAPPERS = {
     "archive_client": "archive.ps1",
     "compute": "compute.ps1",
     "skillpack": "skillpack.ps1",
+    "e2e_check": "e2e-check.ps1",
 }
 NEWPAPER_WRAPPER = "new-paper.ps1"
 NEWPAPER_MODULE = "newpaper.create"

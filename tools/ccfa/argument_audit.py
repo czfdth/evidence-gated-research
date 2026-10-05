@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -79,6 +80,114 @@ def _normalise_whitespace(value: str) -> str:
 
 def _problem(code: str, path: Path | str, line: int | None, message: str) -> Problem:
     return Problem(code, str(path), line, message)
+
+
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def sha256_of(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _proof_input_key(
+    paper_root: Path,
+    manuscript: Path,
+    environment_path: str,
+) -> str | None:
+    """Map a theorem's manuscript-relative path to a paper-relative key."""
+
+    try:
+        base = Path(manuscript).resolve().relative_to(Path(paper_root).resolve())
+    except (OSError, ValueError):
+        return None
+    return (base / environment_path).as_posix()
+
+
+def _check_audited_inputs(
+    review: dict,
+    review_id: str,
+    paper_root: Path,
+    required_key: str | None,
+    ledger_path: Path,
+    problems: list[Problem],
+    *,
+    codes: tuple[str, str] = ("proof-review-unbound", "proof-review-stale"),
+) -> None:
+    """Bind a human attestation to the bytes it claims to have reviewed.
+
+    A signature that is not tied to a revision survives every later edit, which
+    is exactly the failure mode this check exists for.
+    """
+
+    root = Path(paper_root).resolve()
+    unbound_code, stale_code = codes
+    inputs = review.get("audited_inputs")
+    if not isinstance(inputs, dict) or not inputs:
+        problems.append(
+            _problem(
+                unbound_code,
+                ledger_path,
+                None,
+                f"{review_id}: status=verified 必须写 audited_inputs"
+                "（复核时读过的文件 + sha256），否则改稿后复核仍然有效",
+            )
+        )
+        return
+    seen: set[str] = set()
+    for raw_path, digest in inputs.items():
+        relative = str(raw_path)
+        try:
+            target = (root / relative).resolve()
+            resolved = target.relative_to(root).as_posix()
+        except (OSError, ValueError):
+            problems.append(
+                _problem(
+                    unbound_code,
+                    ledger_path,
+                    None,
+                    f"{review_id}: audited_inputs 路径越界: {relative!r}",
+                )
+            )
+            continue
+        if not _DIGEST.match(str(digest)):
+            problems.append(
+                _problem(
+                    unbound_code,
+                    ledger_path,
+                    None,
+                    f"{review_id}: {relative} 的摘要必须是 sha256:<64 位十六进制>",
+                )
+            )
+            continue
+        seen.add(resolved)
+        if not target.is_file():
+            problems.append(
+                _problem(
+                    unbound_code,
+                    ledger_path,
+                    None,
+                    f"{review_id}: audited_inputs 指向的文件不存在: {relative}",
+                )
+            )
+        elif sha256_of(target) != digest:
+            problems.append(
+                _problem(
+                    stale_code,
+                    target,
+                    None,
+                    f"{review_id}: {relative} 在复核之后被修改，"
+                    "复核结论作废（重跑 argument-audit stamp 并重新签字）",
+                )
+            )
+    if required_key is not None and required_key not in seen:
+        problems.append(
+            _problem(
+                unbound_code,
+                ledger_path,
+                None,
+                f"{review_id}: audited_inputs 必须包含定理所在文件 {required_key}",
+            )
+        )
 
 
 def _read_yaml(path: Path) -> tuple[object | None, list[Problem]]:
@@ -270,6 +379,7 @@ def _bib_keys(bib: Path) -> set[str]:
 
 def _check_proofs(
     paper_root: Path,
+    manuscript: Path,
     environments: list[dict],
     ledger_path: Path,
 ) -> tuple[list[Problem], list[Problem], dict]:
@@ -401,6 +511,26 @@ def _check_proofs(
                     f"{review_id}: status={status!r}，"
                     "未通过人工复核",
                 )
+            )
+        elif _human_reviewer(review.get("reviewer")):
+            # Only a human attestation needs binding; a model reviewer is
+            # already rejected above, and repeating the complaint adds noise.
+            environment = next(
+                (item for item in environments if item["id"] == review_id),
+                None,
+            )
+            required = (
+                _proof_input_key(paper_root, manuscript, environment["path"])
+                if environment is not None
+                else None
+            )
+            _check_audited_inputs(
+                review,
+                review_id,
+                paper_root,
+                required,
+                ledger_path,
+                problems,
             )
     env_ids = {item["id"] for item in environments}
     for item in environments:
@@ -566,6 +696,26 @@ def _check_citation_support(
                     None,
                     f"{support_id}: reviewed_at 必须是 YYYY-MM-DD",
                 )
+            )
+        if _human_reviewer(support.get("reviewer")):
+            # The human read an evidence source; bind the verdict to those bytes.
+            source_path = support.get("source_path")
+            required = (
+                source_path.strip()
+                if isinstance(source_path, str) and source_path.strip()
+                else None
+            )
+            _check_audited_inputs(
+                support,
+                support_id,
+                paper_root,
+                required,
+                ledger_path,
+                problems,
+                codes=(
+                    "citation-support-unbound",
+                    "citation-support-stale",
+                ),
             )
         verdict = support.get("verdict")
         if not isinstance(verdict, str) or verdict not in SUPPORT_VERDICTS:
@@ -1001,6 +1151,22 @@ def _check_figure_support(
             continue
         covered.add(figure_id)
 
+        if _human_reviewer(entry.get("reviewer")):
+            # The human looked at a delivered figure; bind the verdict to it.
+            figure_file = manifest_entry.get("file")
+            _check_audited_inputs(
+                entry,
+                figure_id,
+                paper_root,
+                figure_file if isinstance(figure_file, str) else None,
+                ledger_path,
+                problems,
+                codes=(
+                    "figure-support-unbound",
+                    "figure-support-stale",
+                ),
+            )
+
         note = entry.get("note")
         note_valid = (
             isinstance(note, str) and len(_normalise_whitespace(note)) >= _MIN_NOTE
@@ -1212,6 +1378,7 @@ def check(
     keys = _bib_keys(bib)
     proof_problems, proof_advisories, proof_summary = _check_proofs(
         paper_root,
+        manuscript,
         environments,
         proof_ledger,
     )
@@ -1273,6 +1440,24 @@ def check(
     return problems, advisories
 
 
+def _print_audited_inputs(paper_root: Path, files: list[str]) -> int:
+    """Print the ``audited_inputs`` block for the current bytes of *files*."""
+
+    root = Path(paper_root).resolve()
+    lines = ["audited_inputs:"]
+    for raw in files:
+        target = (root / str(raw)).resolve()
+        try:
+            relative = target.relative_to(root).as_posix()
+        except ValueError:
+            return tool_error(f"文件不在论文目录内: {raw}")
+        if not target.is_file():
+            return tool_error(f"找不到文件: {raw}")
+        lines.append(f"  {relative}: {sha256_of(target)}")
+    print("\n".join(lines))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="审计人工证明复核、引用语义支持与图表语义支持台账"
@@ -1284,7 +1469,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--citation-ledger")
     parser.add_argument("--figure-ledger")
     parser.add_argument("--manifest")
+    parser.add_argument(
+        "--stamp",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "只打印这些文件（论文目录相对路径）的 audited_inputs 片段，"
+            "供人工复核后粘进台账；不执行检查"
+        ),
+    )
     args = parser.parse_args(argv[1:])
+    if args.stamp:
+        return _print_audited_inputs(Path(args.paper_root), args.stamp)
     try:
         problems, advisories = check(
             Path(args.paper_root),

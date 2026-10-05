@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from datetime import date
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -56,6 +57,33 @@ class ReadinessTests(unittest.TestCase):
             f"{extra}",
             encoding="utf-8",
         )
+
+    def _set_deadline(self, value: str) -> None:
+        """Give the fixture a real target date so the countdown has a subject."""
+
+        path = self.paper_root / "ccfa.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("  deadline: null", f"  deadline: {value}"),
+            encoding="utf-8",
+        )
+
+    def _git_init(self):
+        """Make the paper root a committed worktree with no remote yet."""
+
+        for args in (
+            ["git", "init"],
+            ["git", "config", "user.email", "test@example.com"],
+            ["git", "config", "user.name", "Test"],
+            ["git", "add", "ccfa.yaml"],
+            ["git", "commit", "-m", "init"],
+        ):
+            subprocess.run(
+                args,
+                cwd=self.paper_root,
+                check=True,
+                capture_output=True,
+            )
 
     def _touch_ledgers(self, names):
         paths = {
@@ -470,6 +498,70 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(human["checkpoints"][0]["id"], "cross-review")
         self.assertIn("跨族", human["checkpoints"][0]["question"])
 
+    def test_claim_candidates_have_a_promotion_checkpoint(self):
+        (self.paper_root / "data").mkdir(exist_ok=True)
+        (self.paper_root / "data" / "claim-candidates.yaml").write_text(
+            "version: 1\n"
+            "claims:\n"
+            "  - id: CC-1\n"
+            "    statement: Candidate claim\n"
+            "    status: proposed\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        self.assertEqual(report["human_review"]["status"], "pending-human-review")
+        checkpoint = report["human_review"]["checkpoints"][0]
+        self.assertEqual(checkpoint["id"], "claim-candidates")
+        self.assertEqual(checkpoint["ledger"], "data/claim-candidates.yaml")
+
+    def test_optimization_proposals_have_a_review_checkpoint(self):
+        (self.paper_root / "data").mkdir(exist_ok=True)
+        (self.paper_root / "data" / "experiment-optimization-proposals.yaml").write_text(
+            "version: 1\n"
+            "proposals:\n"
+            "  - optimization_id: TEST\n"
+            "    status: proposed\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        self.assertEqual(report["human_review"]["status"], "pending-human-review")
+        checkpoint = report["human_review"]["checkpoints"][0]
+        self.assertEqual(checkpoint["id"], "optimization-proposals")
+        self.assertEqual(
+            checkpoint["ledger"],
+            "data/experiment-optimization-proposals.yaml",
+        )
+
+    def test_generated_research_plans_have_a_review_checkpoint(self):
+        (self.paper_root / "data").mkdir(exist_ok=True)
+        (self.paper_root / "data" / "research-plan-candidates.yaml").write_text(
+            "version: 1\nplans:\n  - id: RP-001\n    status: proposed\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        checkpoint = report["human_review"]["checkpoints"][0]
+        self.assertEqual(checkpoint["id"], "research-plans")
+        self.assertEqual(checkpoint["ledger"], "data/research-plan-candidates.yaml")
+
+    def test_code_mutation_proposals_have_a_review_checkpoint(self):
+        (self.paper_root / "data").mkdir(exist_ok=True)
+        (self.paper_root / "data" / "code-mutation-proposals.yaml").write_text(
+            "version: 1\nproposals:\n  - id: CM-1\n    status: proposed\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        checkpoint = report["human_review"]["checkpoints"][0]
+        self.assertEqual(checkpoint["id"], "code-mutations")
+        self.assertEqual(checkpoint["ledger"], "data/code-mutation-proposals.yaml")
+
     def test_high_assurance_defaults_to_submission_assurance(self):
         self._touch_ledgers(["novelty"])
         self._write_state("workflow:\n  profile: high-assurance\n")
@@ -484,6 +576,30 @@ class ReadinessTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             build_report(self.paper_root)
+
+    def test_gate_verdicts_mark_missing_inputs_as_blocked(self):
+        report = build_report(self.paper_root)
+
+        self.assertEqual(report["verdicts"]["argument-audit"], "blocked")
+        self.assertIn("blocked", render_markdown(report))
+
+    def test_a_gate_that_ran_and_rejected_is_a_fail_verdict(self):
+        self._touch_ledgers(["novelty"])
+        (self.paper_root / "data" / "novelty-audit.yaml").write_text(
+            "version: 1\n"
+            "search:\n"
+            "  databases: [arXiv]\n"
+            "  queries: [q]\n"
+            "  searched_at: '2026-10-04'\n"
+            "  cutoff: '2026-10-04'\n"
+            "claims: [claim-1]\n"
+            "neighbors: []\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="minimal")
+
+        self.assertEqual(report["verdicts"]["novelty"], "fail")
 
     def test_checkpoints_only_returns_the_human_queue_without_running_gates(self):
         self._write_state("workflow:\n  profile: high-assurance\n")
@@ -514,6 +630,115 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn("proof", by_id)
         self.assertTrue(by_id["proof"]["question"])
         self.assertEqual(by_id["proof"]["ledger"], "data/proof-audit.yaml")
+
+    def test_report_counts_down_to_the_submission_deadline(self):
+        self._set_deadline("'2026-10-15'")
+
+        report = build_report(
+            self.paper_root,
+            profile="minimal",
+            today=date(2026, 10, 6),
+        )
+
+        self.assertEqual(report["deadline"]["mode"], "countdown")
+        self.assertEqual(report["deadline"]["deadline"], "2026-10-15")
+        self.assertEqual(report["deadline"]["days_left"], 9)
+        self.assertFalse(report["deadline"]["overdue"])
+
+    def test_an_overdue_deadline_counts_negative_days(self):
+        self._set_deadline("'2026-09-30'")
+
+        report = build_report(
+            self.paper_root,
+            profile="minimal",
+            today=date(2026, 10, 6),
+        )
+
+        self.assertEqual(report["deadline"]["days_left"], -6)
+        self.assertTrue(report["deadline"]["overdue"])
+
+    def test_a_paper_without_a_deadline_has_no_countdown(self):
+        report = build_report(
+            self.paper_root,
+            profile="minimal",
+            today=date(2026, 10, 6),
+        )
+
+        self.assertIsNone(report["deadline"]["deadline"])
+        self.assertIsNone(report["deadline"]["days_left"])
+        self.assertFalse(report["deadline"]["overdue"])
+
+    def test_markdown_leads_with_the_countdown_and_the_blocker_count(self):
+        self._set_deadline("'2026-10-15'")
+        report = build_report(
+            self.paper_root,
+            profile="minimal",
+            today=date(2026, 10, 6),
+        )
+
+        markdown = render_markdown(report)
+
+        self.assertIn("## Summary", markdown)
+        self.assertIn("还有 9 天（2026-10-15）", markdown)
+        self.assertIn(f"阻塞: {len(report['blocking'])} 条", markdown)
+        self.assertIn("## Deadline", markdown)
+        self.assertIn("## Blocking", markdown)
+
+    def test_collaboration_only_agrees_with_the_full_report(self):
+        self._git_init()
+        stream = StringIO()
+
+        with redirect_stdout(stream):
+            code = main(
+                [
+                    "readiness",
+                    "--paper-root",
+                    str(self.paper_root),
+                    "--profile",
+                    "standard",
+                    "--collaboration-only",
+                ]
+            )
+
+        payload = json.loads(stream.getvalue())
+        self.assertEqual(code, 0)
+        self.assertNotIn("gate_results", payload)
+        self.assertTrue(payload["git"]["present"])
+        self.assertFalse(payload["git"]["dirty"])
+        self.assertEqual(payload["git"]["remotes"], [])
+        self.assertFalse(payload["collaboration_ready"])
+        self.assertIn("paper git remote is missing", payload["blocking"])
+        self.assertIn("GitHub Actions workflows are missing", payload["blocking"])
+
+        # The slim report must not invent its own definition of "blocked":
+        # every collaboration reason it lists is one the full report lists too.
+        report = build_report(self.paper_root, profile="standard")
+        self.assertEqual(
+            payload["blocking"],
+            [
+                item
+                for item in report["blocking"]
+                if item in readiness.COLLABORATION_BLOCKERS
+            ],
+        )
+
+        # An uncommitted file is the other half of the same contract.
+        (self.paper_root / "notes.md").write_text("scratch\n", encoding="utf-8")
+        stream = StringIO()
+        with redirect_stdout(stream):
+            main(
+                [
+                    "readiness",
+                    "--paper-root",
+                    str(self.paper_root),
+                    "--profile",
+                    "standard",
+                    "--collaboration-only",
+                ]
+            )
+        dirty = json.loads(stream.getvalue())
+        self.assertTrue(dirty["git"]["dirty"])
+        self.assertIn("paper git worktree is dirty", dirty["blocking"])
 
     def test_git_remote_and_workflow_status_are_reported(self):
         subprocess.run(["git", "init"], cwd=self.paper_root, check=True, capture_output=True)
@@ -703,6 +928,85 @@ class GateDrillTests(ReadinessTests):
         self.assertEqual(
             drills["problems"][0]["code"],
             "gate-drill-evidence-not-triggered",
+        )
+
+
+    def _set_stage(self, current: str, gate: str) -> None:
+        path = self.paper_root / "ccfa.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("  current: idea", f"  current: {current}").replace(
+                "  gate: scope_defined",
+                f"  gate: {gate}",
+            ),
+            encoding="utf-8",
+        )
+
+    def test_shared_stage_does_not_invent_tail_gates(self):
+        report = build_report(self.paper_root, profile="standard")
+
+        names = {result["name"] for result in report["gate_results"]}
+        self.assertNotIn("post-submission", names)
+        self.assertNotIn("talk-pipeline", names)
+
+    def test_conference_tail_stage_requires_the_post_submission_ledger(self):
+        self._set_stage("rebuttal", "rebuttal_submitted")
+
+        report = build_report(self.paper_root, profile="standard")
+
+        names = {result["name"] for result in report["gate_results"]}
+        self.assertIn("post-submission", names)
+        self.assertTrue(
+            any(
+                "post-submission gate failed" in reason
+                for reason in report["blocking"]
+            ),
+            report["blocking"],
+        )
+
+    def test_tail_requirements_are_stage_driven(self):
+        from ccfa.readiness import _tail_requirements
+
+        self.assertEqual(_tail_requirements({"current": "internal-review"}), {})
+        self.assertEqual(
+            _tail_requirements({"current": "rebuttal"}),
+            {"post-submission": True},
+        )
+        self.assertEqual(
+            _tail_requirements({"current": "resubmitted"}),
+            {"post-submission": True, "resubmit-pipeline": True},
+        )
+        self.assertEqual(
+            _tail_requirements({"current": "camera-ready"}),
+            {"post-submission": True, "talk-pipeline": True},
+        )
+
+
+    def test_tail_stage_blocks_until_its_section_is_complete(self):
+        self._set_stage("rebuttal", "rebuttal_submitted")
+        data = self.paper_root / "data"
+        data.mkdir(exist_ok=True)
+        (data / "post-submission.yaml").write_text(
+            "version: 1\n"
+            "rebuttal:\n"
+            "  status: not-started\n"
+            "resubmit:\n"
+            "  status: not-applicable\n"
+            "  reason: conference submission\n"
+            "talk:\n"
+            "  status: not-started\n",
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="standard")
+
+        self.assertTrue(
+            any(
+                "post-submission gate failed" in reason
+                and "section-incomplete" in reason
+                for reason in report["blocking"]
+            ),
+            report["blocking"],
         )
 
 

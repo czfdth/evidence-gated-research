@@ -132,6 +132,7 @@ class ChatEndToEnd(unittest.TestCase):
             repo_root=self.root,
             secret_store=self.secrets,
             settings_path=self.settings_path,
+            collaboration_probes=False,
         )
         self.window.resize(1100, 780)
         self.window.show()

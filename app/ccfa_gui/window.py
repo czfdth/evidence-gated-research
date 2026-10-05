@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QThreadPool, Qt, QUrl
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont, QImage
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -33,15 +35,43 @@ from ccfa_core.checks import (
     run_validate,
 )
 from ccfa_core.checks import run_checkpoints as load_checkpoints
-from ccfa_core.projects import ProjectError, find_projects, load_project
+from ccfa_core.checks import run_readiness as load_readiness
+from ccfa_core.checks import export_readiness as write_readiness_report
+from ccfa_core.projects import (
+    ProjectError,
+    deadline_note,
+    find_projects,
+    load_project,
+    stages_for,
+)
 from ccfa_core.secrets import KeyringSecretStore, SecretStoreUnavailable
 from ccfa_core.settings import default_settings_path, load_settings
+from ccfa_core.state import (
+    StageTransitionError,
+    rollback_stage,
+    set_stage,
+    transition_targets,
+)
 
 from .chat_panel import ChatPanel
+from .collaboration_probe import CollaborationProbe
+from .flow_layout import FlowLayout
+from .stage_dialog import StageTransitionDialog
 from .settings_dialog import SettingsDialog
-from . import icons, theme
+from . import appearance, icons, theme
 
 _SHARED_LIBRARY_DIR = Path(__file__).resolve().parents[2] / "library"
+
+# Below this width the conversation column is worth more as horizontal room for
+# the project detail pane; the toolbar toggle brings it back on demand.
+CHAT_COLLAPSE_WIDTH = 1000
+
+# Motion is short and only ever used to explain a layout change: 180ms for the
+# conversation column, 140ms for swapping the detail page. Disable with
+# animations=False (tests) or CCFA_NO_ANIM=1 (reduced-motion preference).
+CHAT_ANIMATION_MS = 180
+PAGE_ANIMATION_MS = 140
+CHAT_PANE_MIN_WIDTH = 300
 
 # Absolute path tokens inside a workflow error message ("C:\...\ccfa.yaml").
 _PATH_TOKEN = re.compile(r"[A-Za-z]:[\\/][^\s]*|file://[^\s]*")
@@ -108,8 +138,15 @@ class MainWindow(QMainWindow):
         secret_store=None,
         settings_path: Path | None = None,
         parent=None,
+        animations: bool | None = None,
+        collaboration_probes: bool = True,
     ):
         super().__init__(parent)
+        if animations is None:
+            animations = os.environ.get("CCFA_NO_ANIM") != "1"
+        self._animations = bool(animations)
+        self._chat_animation: QPropertyAnimation | None = None
+        self._page_animation: QPropertyAnimation | None = None
         self._repo_root = Path(repo_root)
         self._secret_store = secret_store or KeyringSecretStore()
         self._settings_path = (
@@ -117,13 +154,30 @@ class MainWindow(QMainWindow):
             if settings_path is not None
             else default_settings_path(self._repo_root)
         )
+        # Collaboration probes run off the GUI thread; each refresh bumps the
+        # generation so a result from a stale scan is dropped instead of
+        # painting an old answer onto a rebuilt list.
+        self._refs: list = []
+        self._git_states: dict = {}
+        self._probe_generation = 0
+        self._probe_tasks: list = []
+        # One shared pool: probing a paper costs a workflow subprocess, so the
+        # app must not start a fresh pool per window.
+        self._probe_pool = QThreadPool.globalInstance()
+        self._probe_pool.setMaxThreadCount(
+            min(4, max(1, self._probe_pool.maxThreadCount()))
+        )
+        self._collaboration_probes = bool(collaboration_probes)
         self._build_ui()
         self.refresh_projects()
         self._update_credential_status()
 
     def _build_ui(self) -> None:
         self.setWindowTitle("论文工作台")
-        self.setStyleSheet(theme.stylesheet())
+        self._mode = appearance.current_mode()
+        self._palette = theme.palette(self._mode)
+        self._chat_override: bool | None = None
+        self._was_wide = True
         central = QWidget(self)
         self.setCentralWidget(central)
         outer = QVBoxLayout(central)
@@ -152,6 +206,118 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.workflow_label)
         self.statusBar().addPermanentWidget(self.status_separator)
         self.statusBar().addPermanentWidget(self.credential_label)
+        self._apply_theme()
+        appearance.watch(self._on_system_scheme_changed)
+
+    def _apply_theme(self) -> None:
+        """Paint the window with the current mode and recolour its icons."""
+
+        self._palette = theme.palette(self._mode)
+        self.setStyleSheet(theme.stylesheet(self._mode))
+        self.chat_panel.set_theme_mode(self._mode)
+        self._apply_icons()
+        self._apply_responsive_layout(animate=False)
+
+    def _apply_icons(self) -> None:
+        ink = self._palette["ink"]
+        muted = self._palette["muted"]
+        self.app_mark.setPixmap(icons.app_mark(22, colour=self._palette["accent"]))
+        self.refresh_button.setIcon(icons.icon("refresh", colour=ink))
+        self.settings_button.setIcon(icons.icon("settings", colour=ink))
+        self.chat_toggle.setIcon(icons.icon("chat", colour=ink))
+        self.open_dir_button.setIcon(icons.icon("folder", colour=muted))
+        self.export_button.setIcon(icons.icon("export", colour=muted))
+        self.validate_button.setIcon(icons.icon("validate", colour="#ffffff"))
+        self.milestones_button.setIcon(icons.icon("milestones", colour=ink))
+        self.readiness_button.setIcon(icons.icon("readiness", colour=ink))
+        self.stages_button.setIcon(icons.icon("stages", colour=ink))
+        self.checkpoints_button.setIcon(icons.icon("checkpoints", colour=ink))
+        self.chat_panel.send_button.setIcon(icons.icon("send", colour=ink))
+        self.placeholder_icon.setPixmap(
+            icons.pixmap("inbox", colour=self._palette["placeholder_icon"], size=44)
+        )
+
+    def _on_system_scheme_changed(self) -> None:
+        mode = appearance.current_mode()
+        if mode != self._mode:
+            self._mode = mode
+            self._apply_theme()
+
+    def _on_chat_toggled(self, checked: bool) -> None:
+        self._chat_override = bool(checked)
+        self._set_chat_visible(bool(checked))
+
+    def _set_chat_visible(self, visible: bool, *, animate: bool = True) -> None:
+        """Show/hide the conversation column, sliding it when motion is on."""
+
+        card = self.chat_card
+        if self._chat_animation is not None:
+            self._chat_animation.stop()
+            self._chat_animation = None
+        if not (animate and self._animations) or not self.isVisible():
+            card.setMinimumWidth(CHAT_PANE_MIN_WIDTH if visible else 0)
+            card.setMaximumWidth(16777215)
+            card.setVisible(visible)
+            return
+        target = max(CHAT_PANE_MIN_WIDTH, card.width() or CHAT_PANE_MIN_WIDTH)
+        if visible:
+            card.setMinimumWidth(0)
+            card.setMaximumWidth(0)
+            card.setVisible(True)
+        start, end = (0, target) if visible else (card.width(), 0)
+        animation = QPropertyAnimation(card, b"maximumWidth", self)
+        animation.setDuration(CHAT_ANIMATION_MS)
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.finished.connect(lambda: self._finish_chat_motion(visible))
+        self._chat_animation = animation
+        animation.start()
+
+    def _finish_chat_motion(self, visible: bool) -> None:
+        self.chat_card.setMinimumWidth(
+            CHAT_PANE_MIN_WIDTH if visible else 0
+        )
+        self.chat_card.setMaximumWidth(16777215)
+        self.chat_card.setVisible(visible)
+        self._chat_animation = None
+
+    def _show_stack_page(self, index: int) -> None:
+        """Switch the detail pane, fading the incoming page when motion is on."""
+
+        if self.detail_stack.currentIndex() == index:
+            return
+        self.detail_stack.setCurrentIndex(index)
+        if not self._animations or not self.isVisible():
+            return
+        page = self.detail_stack.currentWidget()
+        effect = QGraphicsOpacityEffect(page)
+        page.setGraphicsEffect(effect)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(PAGE_ANIMATION_MS)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.finished.connect(lambda: page.setGraphicsEffect(None))
+        self._page_animation = animation
+        animation.start()
+
+    def _apply_responsive_layout(self, *, animate: bool = True) -> None:
+        wide = self.width() >= CHAT_COLLAPSE_WIDTH
+        if wide != self._was_wide:
+            # Crossing the breakpoint clears a manual choice, so the automatic
+            # rule wins again next time the window changes size class.
+            self._chat_override = None
+            self._was_wide = wide
+        visible = wide if self._chat_override is None else self._chat_override
+        if self.chat_card.isVisible() != visible:
+            self._set_chat_visible(visible, animate=animate)
+        self.chat_toggle.blockSignals(True)
+        self.chat_toggle.setChecked(visible)
+        self.chat_toggle.blockSignals(False)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._apply_responsive_layout()
 
     def _build_toolbar(self) -> QWidget:
         bar = QFrame(self)
@@ -183,6 +349,15 @@ class MainWindow(QMainWindow):
         self.settings_button.setToolTip("provider、密钥与工作流目录")
         self.settings_button.clicked.connect(self.open_settings)
         row.addWidget(self.settings_button)
+
+        self.chat_toggle = QPushButton()
+        self.chat_toggle.setObjectName("chat_toggle")
+        self.chat_toggle.setCheckable(True)
+        self.chat_toggle.setChecked(True)
+        self.chat_toggle.setToolTip("显示或隐藏对话栏（窄窗口会自动收起）")
+        self.chat_toggle.setFixedWidth(36)
+        self.chat_toggle.clicked.connect(self._on_chat_toggled)
+        row.addWidget(self.chat_toggle)
 
         row.addStretch(1)
         self.summary_label = QLabel("")
@@ -234,6 +409,16 @@ class MainWindow(QMainWindow):
         self.open_dir_button.setEnabled(False)
         self.open_dir_button.clicked.connect(self._open_project_dir)
         title_row.addWidget(self.open_dir_button)
+        self.export_button = QPushButton()
+        self.export_button.setObjectName("export_button")
+        self.export_button.setIcon(icons.icon("export", colour=theme.MUTED))
+        self.export_button.setToolTip(
+            "导出 readiness 一页式报告（写入 reviews/readiness-<日期>.md 并打开）"
+        )
+        self.export_button.setFixedSize(26, 26)
+        self.export_button.setEnabled(False)
+        self.export_button.clicked.connect(self.export_readiness_report)
+        title_row.addWidget(self.export_button)
         head.addLayout(title_row)
         self.project_note = QLabel("从左侧选择一个项目")
         self.project_note.setObjectName("projectNote")
@@ -253,10 +438,19 @@ class MainWindow(QMainWindow):
             badges.addWidget(widget)
         badges.addStretch(1)
         head.addLayout(badges)
+        self.gate_criterion_label = QLabel("")
+        self.gate_criterion_label.setObjectName("gateCriterion")
+        self.gate_criterion_label.setProperty("role", "hint")
+        self.gate_criterion_label.setWordWrap(True)
+        self.gate_criterion_label.setVisible(False)
+        head.addWidget(self.gate_criterion_label)
         column.addWidget(header)
 
-        actions = QHBoxLayout()
-        actions.setSpacing(6)
+        # A flow layout keeps every action readable: the pane is narrow whenever
+        # the conversation column is open, and a box layout would elide the
+        # button text instead of using a second line.
+        actions_widget = QWidget(panel)
+        actions = FlowLayout(actions_widget, h_spacing=6, v_spacing=6)
         self.validate_button = QPushButton("运行 validate")
         self.validate_button.setObjectName("validate_button")
         self.validate_button.setProperty("role", "primary")
@@ -270,6 +464,22 @@ class MainWindow(QMainWindow):
         self.milestones_button.setToolTip("检查倒排里程碑与到期项")
         self.milestones_button.clicked.connect(self.run_milestones)
         actions.addWidget(self.milestones_button)
+        self.readiness_button = QPushButton("运行 readiness")
+        self.readiness_button.setObjectName("readiness_button")
+        self.readiness_button.setIcon(icons.icon("readiness", colour=theme.INK))
+        self.readiness_button.setToolTip(
+            "跑一遍 readiness：六个维度、每个 gate 的结论、阻塞清单"
+        )
+        self.readiness_button.clicked.connect(self.run_readiness)
+        actions.addWidget(self.readiness_button)
+        self.stages_button = QPushButton("阶段流转")
+        self.stages_button.setObjectName("stages_button")
+        self.stages_button.setIcon(icons.icon("stages", colour=theme.INK))
+        self.stages_button.setToolTip(
+            "推进或回退 stage：写回 ccfa.yaml 并记入 stage.history"
+        )
+        self.stages_button.clicked.connect(self.open_stage_dialog)
+        actions.addWidget(self.stages_button)
         self.checkpoints_button = QPushButton("待人工复核")
         self.checkpoints_button.setObjectName("checkpoints_button")
         self.checkpoints_button.setIcon(icons.icon("checkpoints", colour=theme.INK))
@@ -278,12 +488,16 @@ class MainWindow(QMainWindow):
         )
         self.checkpoints_button.clicked.connect(self.run_checkpoints)
         actions.addWidget(self.checkpoints_button)
-        actions.addStretch(1)
+        policy = actions_widget.sizePolicy()
+        policy.setHeightForWidth(True)
+        actions_widget.setSizePolicy(policy)
+        column.addWidget(actions_widget)
+        # The summary keeps its own line: inside the wrapping row it would wrap
+        # alone as soon as the buttons filled the width.
         self.results_summary = QLabel("尚未运行检查")
         self.results_summary.setObjectName("results_summary")
         self.results_summary.setProperty("role", "hint")
-        actions.addWidget(self.results_summary)
-        column.addLayout(actions)
+        column.addWidget(self.results_summary)
 
         self.checkpoint_banner = QLabel("")
         self.checkpoint_banner.setObjectName("checkpoint_banner")
@@ -351,11 +565,16 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
+        # Explicit minimums on all three panes keep the window able to shrink to
+        # the breakpoint above; without this the detail pane's natural minimum
+        # keeps the window wider than the collapse threshold.
+        panel.setMinimumWidth(320)
         return panel
 
     def _build_conversation(self) -> QWidget:
         panel = QFrame(self)
         panel.setObjectName("card")
+        self.chat_card = panel
         column = QVBoxLayout(panel)
         column.setContentsMargins(10, 10, 10, 10)
         column.setSpacing(6)
@@ -376,7 +595,7 @@ class MainWindow(QMainWindow):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _set_results(self, rows) -> None:
-        self.detail_stack.setCurrentIndex(0)
+        self._show_stack_page(0)
         self.results_table.setRowCount(0)
         actionable = 0
         for source, code, message in rows:
@@ -396,21 +615,21 @@ class MainWindow(QMainWindow):
                     if text not in {"OK", "无问题"}:
                         actionable += 1
                     item.setForeground(
-                        QBrush(QColor(theme.severity_color(text)))
+                        QBrush(QColor(theme.severity_color(text, self._mode)))
                     )
                 self.results_table.setItem(row, column, item)
         if not rows:
             self.results_summary.setText("尚未运行检查")
-            self.results_summary.setStyleSheet(f"color: {theme.MUTED};")
+            self.results_summary.setStyleSheet(f"color: {self._palette['muted']};")
             return
         if actionable:
             self.results_summary.setText(
                 f"{len(rows)} 条结果 · {actionable} 条需处理"
             )
-            colour = theme.PROBLEM
+            colour = self._palette["problem"]
         else:
             self.results_summary.setText(f"{len(rows)} 条结果 · 全部通过")
-            colour = theme.OK
+            colour = self._palette["ok"]
         self.results_summary.setStyleSheet(f"color: {colour};")
 
     def _set_badge(self, label: QLabel, text: str, *, state: str | None = None) -> None:
@@ -428,9 +647,13 @@ class MainWindow(QMainWindow):
         self.project_note.setText("从左侧选择一个项目")
         self.project_note.setToolTip("")
         self.open_dir_button.setEnabled(False)
+        self.export_button.setEnabled(False)
+        self.gate_criterion_label.setText("")
+        self.gate_criterion_label.setVisible(False)
         self._set_badge(self.stage_label, "")
         self._set_badge(self.gate_label, "")
         self._set_badge(self.deadline_label, "")
+        self.deadline_label.setToolTip("")
 
     def _show_placeholder(
         self,
@@ -442,11 +665,11 @@ class MainWindow(QMainWindow):
         """Empty state for the detail pane: icon, one line, then the hint."""
 
         self.placeholder_icon.setPixmap(
-            icons.pixmap(icon_name, colour="#c9c9d1", size=44)
+            icons.pixmap(icon_name, colour=self._palette["placeholder_icon"], size=44)
         )
         self.placeholder_title.setText(title)
         self.placeholder_hint.setText(hint)
-        self.detail_stack.setCurrentIndex(2)
+        self._show_stack_page(2)
 
     def _show_project_error(self, slug: str, error: str) -> None:
         """Show a broken project without spilling a traceback across the header."""
@@ -458,6 +681,8 @@ class MainWindow(QMainWindow):
         self._set_badge(self.stage_label, f"无法读取 {slug}", state="problem")
         self._set_badge(self.gate_label, "配置无效", state="problem")
         self._set_badge(self.deadline_label, "截止 未知")
+        self.gate_criterion_label.setText("")
+        self.gate_criterion_label.setVisible(False)
 
     def _open_project_dir(self) -> None:
         ref = self._selected_ref()
@@ -475,6 +700,8 @@ class MainWindow(QMainWindow):
         self.project_list.blockSignals(True)
         self.project_list.clear()
         refs = find_projects(self._repo_root)
+        self._refs = refs
+        self._git_states = {}
         for ref in refs:
             if ref.error is None:
                 text = f"● {ref.slug}"
@@ -488,15 +715,7 @@ class MainWindow(QMainWindow):
             else:
                 item.setToolTip(f"papers/{ref.slug}")
             self.project_list.addItem(item)
-        count = len(refs)
-        broken = sum(1 for ref in refs if ref.error)
-        if count:
-            self.summary_label.setText(
-                f"{count} 个项目"
-                + (f" · {broken} 个无法读取" if broken else "")
-            )
-        else:
-            self.summary_label.setText("papers/ 下没有项目")
+        self._update_summary()
         self.project_list.blockSignals(False)
         if refs:
             self.project_list.setCurrentRow(0)
@@ -509,6 +728,103 @@ class MainWindow(QMainWindow):
                 "--year 2027 --mode conference 创建第一篇，然后点「刷新」。",
             )
             self.chat_panel.set_project(None)
+        self._start_collaboration_probes()
+
+    def _select_slug(self, slug: str) -> None:
+        """Re-select one project by slug after the list has been rebuilt."""
+
+        for row in range(self.project_list.count()):
+            item = self.project_list.item(row)
+            ref = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if ref is not None and ref.slug == slug:
+                self.project_list.setCurrentRow(row)
+                return
+
+    def _start_collaboration_probes(self) -> None:
+        """Ask the workflow about each readable project, off the GUI thread."""
+
+        self._probe_generation += 1
+        generation = self._probe_generation
+        self._probe_pool.clear()
+        self._probe_tasks = []
+        if not self._collaboration_probes:
+            return
+        for ref in self._refs:
+            if ref.error is not None:
+                continue
+            task = CollaborationProbe(generation, ref.slug, ref.dir)
+            task.signals.done.connect(self._apply_collaboration)
+            # The pool owns the C++ side; keeping the Python wrapper and its
+            # signal object alive keeps the queued emission deliverable.
+            self._probe_tasks.append(task)
+            self._probe_pool.start(task)
+
+    def _apply_collaboration(self, generation: int, slug: str, state) -> None:
+        if generation != self._probe_generation:
+            return
+        self._git_states[slug] = state
+        self._update_project_row(slug, state)
+        self._update_summary()
+
+    def _update_project_row(self, slug: str, state) -> None:
+        for row in range(self.project_list.count()):
+            item = self.project_list.item(row)
+            ref = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if ref is None or ref.error is not None or ref.slug != slug:
+                continue
+            warnings = state.warnings
+            # The glyph and the colour are the whole row signal: a long slug
+            # would push any inline reason into "· 有未提", and the sidebar
+            # tooltip already names each problem in full.
+            marker = "◆" if warnings else "●"
+            item.setText(f"{marker} {slug}")
+            if warnings:
+                item.setForeground(
+                    QBrush(QColor(self._palette["advisory"]))
+                )
+            else:
+                item.setForeground(QBrush(QColor(self._palette["ink"])))
+            item.setToolTip(self._collaboration_tooltip(ref, state))
+            return
+
+    def _collaboration_tooltip(self, ref, state) -> str:
+        lines = [f"papers/{ref.slug}"]
+        if state.error:
+            lines.append(state.error)
+        elif not state.present:
+            lines.append("不是 git 仓库：版本、快照与 run-log commit 都会落空")
+        else:
+            lines.append(f"提交 {state.commit or '未知'}")
+            lines.append("remote：" + ("、".join(state.remotes) or "无"))
+            lines.append(
+                "CI workflows：有" if state.workflows_present else "CI workflows：无"
+            )
+            lines.append(
+                "未提交改动：有" if state.dirty else "未提交改动：无"
+            )
+        for reason in state.blocking:
+            lines.append(f"· {reason}")
+        return "\n".join(lines)
+
+    def _update_summary(self) -> None:
+        refs = self._refs
+        if not refs:
+            self.summary_label.setText("papers/ 下没有项目")
+            return
+        broken = sum(1 for ref in refs if ref.error)
+        risky = sum(
+            1
+            for ref in refs
+            if ref.error is None
+            and ref.slug in self._git_states
+            and bool(self._git_states[ref.slug].warnings)
+        )
+        parts = [f"{len(refs)} 个项目"]
+        if broken:
+            parts.append(f"{broken} 个无法读取")
+        if risky:
+            parts.append(f"{risky} 个有协作风险")
+        self.summary_label.setText(" · ".join(parts))
 
     def _on_project_selected(self, _current, _previous) -> None:
         ref = self._selected_ref()
@@ -524,6 +840,7 @@ class MainWindow(QMainWindow):
             self.chat_panel.set_project(None)
             return
         self.open_dir_button.setEnabled(True)
+        self.export_button.setEnabled(True)
         if ref.error:
             self._show_project_error(ref.slug, ref.error)
             self._set_results([("ccfa.yaml", "错误", ref.error)])
@@ -542,10 +859,18 @@ class MainWindow(QMainWindow):
         self.project_note.setToolTip(str(ref.dir))
         self._set_badge(self.stage_label, f"阶段 {state.current_stage}")
         self._set_badge(self.gate_label, f"门禁 {state.gate}")
-        self._set_badge(
-            self.deadline_label,
-            f"截止 {state.deadline if state.deadline else '无'}",
+        # The badge row is tight at narrow widths, so it carries the countdown
+        # and the tooltip keeps the absolute date.
+        self._set_badge(self.deadline_label, f"截止 {deadline_note(state.deadline)}")
+        self.deadline_label.setToolTip(
+            f"目标日 {state.deadline}" if state.deadline else "未设置投稿截止日"
         )
+        criterion = state.gate_criterion
+        self.gate_criterion_label.setText(
+            f"门禁判据：{criterion}" if criterion else ""
+        )
+        self.gate_criterion_label.setToolTip(criterion)
+        self.gate_criterion_label.setVisible(bool(criterion))
         self.chat_panel.set_project(ref.dir)
 
     def _selected_project_error(self):
@@ -607,23 +932,110 @@ class MainWindow(QMainWindow):
     def _hide_checkpoint_banner(self) -> None:
         self.checkpoint_banner.setVisible(False)
 
-    def _show_checkpoint_banner(self, status: str, count: int) -> None:
-        if status == "pending-human-review":
-            state = "pending"
-            text = (
-                f"待人工复核：{count} 项。脚本只能证明它还没被回答，不能替你回答。"
+    def run_readiness(self) -> None:
+        """Render the workflow's readiness report for the selected project."""
+
+        ref = self._selected_ref()
+        if ref is None or ref.error:
+            self._hide_checkpoint_banner()
+            self._clear_checkpoint_cards()
+            self._set_results([("readiness", "错误", "先选择一个可读取的项目")])
+            return
+        try:
+            result = load_readiness(ref.dir)
+        except CheckError as exc:
+            self._hide_checkpoint_banner()
+            self._clear_checkpoint_cards()
+            self._set_results([("readiness", "错误", str(exc))])
+            return
+        report = result.report or {}
+        dimensions = report.get("dimensions")
+        dimensions = dimensions if isinstance(dimensions, dict) else {}
+        verdicts = report.get("verdicts")
+        verdicts = verdicts if isinstance(verdicts, dict) else {}
+
+        rows: list[tuple[str, str, str]] = [
+            ("维度", str(status), str(name))
+            for name, status in dimensions.items()
+        ]
+        rows.extend(
+            ("gate", str(verdict), str(name))
+            for name, verdict in sorted(verdicts.items())
+            if verdict not in {"pass"}
+        )
+        rows.extend(("阻塞", "问题", str(item)) for item in result.problems)
+        self._clear_checkpoint_cards()
+        self._set_results(rows or [("readiness", "OK", "报告里没有维度信息")])
+
+        counts: dict[str, int] = {}
+        for verdict in verdicts.values():
+            key = str(verdict)
+            counts[key] = counts.get(key, 0) + 1
+        self.results_summary.setText(
+            f"ready={str(bool(report.get('ready'))).lower()} · "
+            f"{len(result.problems)} 条阻塞"
+        )
+        self.results_summary.setStyleSheet(
+            f"color: {self._palette['ok'] if result.ok else self._palette['problem']};"
+        )
+        profile = report.get("profile")
+        assurance = report.get("assurance")
+        if result.ok:
+            self._show_banner(
+                "ok",
+                f"ready=true（profile {profile} / assurance {assurance}）",
             )
-        elif status == "human-attested":
-            state = "ok"
-            text = "人工复核账本已完成，没有待办。"
         else:
-            state = "muted"
-            text = f"当前 profile 不要求人工复核（status={status}）。"
+            first = result.problems[0] if result.problems else "见 gate 结论"
+            gates = " ".join(f"{name}={count}" for name, count in sorted(counts.items()))
+            self._show_banner(
+                "pending",
+                f"ready=false · 阻塞 {len(result.problems)} 条 · {first}"
+                + (f" · gate {gates}" if gates else ""),
+            )
+
+    def export_readiness_report(self) -> None:
+        """Write the workflow's one-page readiness report and open it."""
+
+        ref = self._selected_ref()
+        if ref is None or ref.error:
+            self._hide_checkpoint_banner()
+            self._set_results([("readiness", "错误", "先选择一个可读取的项目")])
+            return
+        try:
+            path = write_readiness_report(ref.dir)
+        except CheckError as exc:
+            self._hide_checkpoint_banner()
+            self._set_results([("readiness", "错误", str(exc))])
+            return
+        try:
+            display = path.relative_to(Path(ref.dir)).as_posix()
+        except ValueError:
+            display = str(path)
+        self._hide_checkpoint_banner()
+        self._set_results([("readiness", "OK", f"已导出 {display}")])
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _show_banner(self, state: str, text: str) -> None:
         self.checkpoint_banner.setText(text)
         self.checkpoint_banner.setProperty("state", state)
         self.checkpoint_banner.style().unpolish(self.checkpoint_banner)
         self.checkpoint_banner.style().polish(self.checkpoint_banner)
         self.checkpoint_banner.setVisible(True)
+
+    def _show_checkpoint_banner(self, status: str, count: int) -> None:
+        if status == "pending-human-review":
+            self._show_banner(
+                "pending",
+                f"待人工复核：{count} 项。脚本只能证明它还没被回答，不能替你回答。"
+            )
+        elif status == "human-attested":
+            self._show_banner("ok", "人工复核账本已完成，没有待办。")
+        else:
+            self._show_banner(
+                "muted",
+                f"当前 profile 不要求人工复核（status={status}）。",
+            )
 
     def run_checkpoints(self) -> None:
         ref = self._selected_ref()
@@ -650,9 +1062,9 @@ class MainWindow(QMainWindow):
         if checkpoints:
             for item in checkpoints:
                 self._add_checkpoint_card(item)
-            self.detail_stack.setCurrentIndex(1)
+            self._show_stack_page(1)
             self.results_summary.setText(f"{len(checkpoints)} 项待人工")
-            self.results_summary.setStyleSheet(f"color: {theme.PROBLEM};")
+            self.results_summary.setStyleSheet(f"color: {self._palette['problem']};")
         else:
             self._set_results(
                 [("readiness", "OK", "当前没有待人工复核项")]
@@ -746,6 +1158,92 @@ class MainWindow(QMainWindow):
                 opened = project_root
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(opened)))
 
+    def open_stage_dialog(self) -> None:
+        """Ask for one transition, then hand it to the workflow's own state tool."""
+
+        ref = self._selected_ref()
+        if ref is None or ref.error:
+            self._set_results([("state", "错误", "先选择一个可读取的项目")])
+            return
+        try:
+            state = load_project(ref.dir)
+            stages = stages_for(state.mode)
+        except (ProjectError, ValueError) as exc:
+            self._set_results([("state", "错误", str(exc))])
+            return
+        targets = {
+            kind: transition_targets(kind, state.current_stage, stages)
+            for kind in ("advance", "rollback")
+        }
+        if not targets["advance"] and not targets["rollback"]:
+            self._set_results([("state", "错误", "该项目没有可流转的阶段")])
+            return
+        dialog = StageTransitionDialog(
+            current=state.current_stage,
+            targets=targets,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._apply_stage_transition(
+            dialog.kind(),
+            dialog.target(),
+            dialog.reason(),
+            dialog.void_artifacts(),
+        )
+
+    def _apply_stage_transition(
+        self,
+        kind: str,
+        to: str,
+        reason: str,
+        void_artifacts=(),
+    ) -> None:
+        """Perform one transition and show what the workflow wrote back."""
+
+        ref = self._selected_ref()
+        if ref is None or ref.error:
+            self._set_results([("state", "错误", "先选择一个可读取的项目")])
+            return
+        slug = ref.slug
+        label = "回退" if kind == "rollback" else "推进"
+        try:
+            if kind == "rollback":
+                entry = rollback_stage(
+                    ref.dir,
+                    to=to,
+                    reason=reason,
+                    void_artifacts=void_artifacts,
+                )
+            else:
+                entry = set_stage(ref.dir, to=to, reason=reason)
+        except StageTransitionError as exc:
+            self._set_results([("state", "错误", str(exc))])
+            self._show_banner("pending", f"阶段流转失败：{exc}")
+            return
+
+        from_stage = str(entry.get("from", ""))
+        gate = str(entry.get("gate", ""))
+        rows = [
+            ("state", "OK", f"{label} {from_stage} → {to}（门禁 {gate}）"),
+        ]
+        if kind == "rollback":
+            voided = entry.get("void_artifacts") or []
+            rows.append(
+                (
+                    "state",
+                    "作废",
+                    "、".join(str(item) for item in voided) or "无",
+                )
+            )
+        # Rebuilding the list re-reads ccfa.yaml, so the header badges show the
+        # workflow's new state rather than the app's assumption about it. It
+        # also clears the results pane, so the outcome is written afterwards.
+        self.refresh_projects()
+        self._select_slug(slug)
+        self._set_results(rows)
+        self._show_banner("ok", f"阶段已{label}：{from_stage} → {to}")
+
     def _update_credential_status(self) -> None:
         try:
             self._secret_store.get("__ccfa_status_probe__")
@@ -754,16 +1252,16 @@ class MainWindow(QMainWindow):
             self.credential_label.setToolTip(
                 "系统密钥环不可访问，API key 无法保存或读取"
             )
-            self.credential_label.setStyleSheet(f"color: {theme.PROBLEM};")
+            self.credential_label.setStyleSheet(f"color: {self._palette['problem']};")
         else:
             self.credential_label.setText("● 凭据可用")
             self.credential_label.setToolTip("系统密钥环可读写")
-            self.credential_label.setStyleSheet(f"color: {theme.OK};")
+            self.credential_label.setStyleSheet(f"color: {self._palette['ok']};")
         try:
             settings = load_settings(self._settings_path)
         except ValueError:
             self.workflow_label.setText("工作流：配置无效")
-            self.workflow_label.setStyleSheet(f"color: {theme.PROBLEM};")
+            self.workflow_label.setStyleSheet(f"color: {self._palette['problem']};")
             return
         root = settings.workflow_root
         if root:

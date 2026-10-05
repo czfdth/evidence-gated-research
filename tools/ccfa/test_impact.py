@@ -46,6 +46,7 @@ _TOOLS_FULL_PATHS = {
     "tools/ccfa/cli.py",
     "tools/ccfa/stages.py",
     "tools/requirements.txt",
+    "tools/requirements.lock",
 }
 
 _TOOLS_EXACT = {
@@ -139,6 +140,36 @@ _TOOLS_EXACT = {
         "tools.tests.test_repro_container",
         "tools.tests.test_scripts",
     ),
+    "tools/ccfa/claim_extract.py": (
+        "tools.tests.test_claim_extract",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
+    "tools/ccfa/experiment_optimizer.py": (
+        "tools.tests.test_experiment_optimizer",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
+    "tools/ccfa/autoresearch.py": (
+        "tools.tests.test_autoresearch",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
+    "tools/ccfa/long_task.py": (
+        "tools.tests.test_long_task",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
+    "tools/ccfa/skill_registry.py": (
+        "tools.tests.test_skill_registry",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
+    "tools/ccfa/external_adapters.py": (
+        "tools.tests.test_external_adapters",
+        "tools.tests.test_docs_consistency",
+        "tools.tests.test_scripts",
+    ),
     "tools/ccfa/dashboard.py": (
         "tools.tests.test_dashboard",
         "tools.tests.test_docs_consistency",
@@ -173,6 +204,13 @@ _TOOLS_EXACT = {
         "tools.tests.test_create",
         "tools.tests.test_state",
         "tools.tests.test_validate",
+    ),
+    "tools/ccfa/dispatch.py": (
+        "tools.tests.test_dispatch",
+        "tools.tests.test_packaging",
+    ),
+    "tools/ccfa/__main__.py": (
+        "tools.tests.test_dispatch",
     ),
 }
 
@@ -216,6 +254,7 @@ _APP_EXACT = {
         "app.tests.test_engine_openai",
     ),
     "app/requirements.txt": (),
+    "app/requirements.lock": (),
 }
 
 
@@ -305,7 +344,9 @@ def _select_app(path: str) -> tuple[str, ...] | None:
     if path.startswith("app/") and not (REPO_ROOT / path).is_file():
         return None
     if path in _APP_EXACT:
-        if path.endswith("requirements.txt"):
+        # A dependency change affects every test in the suite, so both the
+        # direct list and the lock that CI actually installs must force full.
+        if path.endswith(("requirements.txt", "requirements.lock")):
             return None
         return _APP_EXACT[path]
     if path.startswith("app/tests/"):

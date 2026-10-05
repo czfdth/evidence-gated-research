@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -163,7 +164,9 @@ class GitHubWorkflowTests(unittest.TestCase):
             "scripts/test-impact.ps1 run --suite app",
             workflow,
         )
-        self.assertEqual(workflow.count("PYTHONUTF8: '1'"), 3)
+        # Three Windows jobs build a virtualenv; the fourth is the Linux
+        # portability job, which keeps the same UTF-8 contract for its output.
+        self.assertEqual(workflow.count("PYTHONUTF8: '1'"), 4)
 
     def test_ci_installs_hash_locked_requirements(self):
         workflow_texts = [
@@ -341,6 +344,43 @@ class GitHubWorkflowTests(unittest.TestCase):
                     ),
                     4,
                 )
+
+    def test_paper_deterministic_gates_match_across_windows_and_linux(self):
+        if not PAPER_ROOT.is_dir():
+            self.skipTest("independent paper repository is not checked out")
+
+        workflow_path = PAPER_ROOT / ".github" / "workflows" / "paper-check.yml"
+        script_path = PAPER_ROOT / ".github" / "scripts" / "deterministic-gates.sh"
+        self.assertTrue(
+            script_path.is_file(),
+            "paper CI 缺少跨平台 deterministic gate 脚本",
+        )
+
+        payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        self.assertIn("deterministic-paper-checks-linux", payload["jobs"])
+        linux_job = _job_run_text(
+            payload,
+            "deterministic-paper-checks-linux",
+        )
+        self.assertIn("deterministic-gates.sh", linux_job)
+
+        # The same tools must run on both runners; a tool added to only one side
+        # would make the Linux job a weaker check than the Windows job.
+        pattern = re.compile(r"ccfa\.[a-z_]+")
+        windows_tools = set(
+            pattern.findall(
+                _job_run_text(payload, "deterministic-paper-checks")
+            )
+        )
+        linux_tools = set(pattern.findall(script_path.read_text(encoding="utf-8")))
+
+        self.assertEqual(
+            windows_tools,
+            linux_tools,
+            "Windows 与 Linux 的确定性 gate 工具集必须完全一致",
+        )
+        self.assertIn("ccfa.citation_guard", windows_tools)
+        self.assertIn("ccfa.formal_check", windows_tools)
 
     def test_submission_gate_is_fail_closed(self):
         if not PAPER_ROOT.is_dir():

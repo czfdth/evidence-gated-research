@@ -180,6 +180,60 @@ class TestRunCommand(BaseCase):
         self.assertEqual(record["declared_purpose"], "build")
         self.assertNotIn("purpose", record)
 
+    def test_records_the_role_of_an_experiment_run(self):
+        run, _ = self.runner(exit_code=0)
+
+        _, record = run_command(
+            ["python", "train.py"],
+            self.log_dir,
+            self.root,
+            role="negative-control",
+            runner=run,
+        )
+
+        self.assertEqual(record["role"], "negative-control")
+
+    def test_a_run_without_a_role_records_null(self):
+        run, _ = self.runner(exit_code=0)
+
+        _, record = run_command(
+            ["python", "train.py"],
+            self.log_dir,
+            self.root,
+            runner=run,
+        )
+
+        self.assertIsNone(record["role"])
+
+    def test_an_unknown_role_is_refused_before_anything_runs(self):
+        run, calls = self.runner(exit_code=0)
+
+        with self.assertRaises(ValueError):
+            run_command(
+                ["python", "train.py"],
+                self.log_dir,
+                self.root,
+                role="whatever",
+                runner=run,
+            )
+
+        self.assertEqual(calls, [])
+
+    def test_a_build_run_cannot_claim_a_scientific_role(self):
+        run, calls = self.runner(exit_code=0)
+
+        with self.assertRaises(ValueError):
+            run_command(
+                ["python", "render.py"],
+                self.log_dir,
+                self.root,
+                purpose="build",
+                role="negative-control",
+                runner=run,
+            )
+
+        self.assertEqual(calls, [])
+
     def test_help_marks_purpose_as_a_declaration_not_evidence(self):
         stdout = StringIO()
 
@@ -458,6 +512,33 @@ class TestCheckRuns(BaseCase):
         problems, advisories = check_runs(self.log_dir)
         self.assertEqual(problems, [])
         self.assertEqual(advisories, [])
+
+    def test_a_record_with_a_valid_role_is_clean(self):
+        self._write_record(
+            "a",
+            self._base(declared_purpose="experiment", role="negative-control"),
+        )
+
+        problems, _advisories = check_runs(self.log_dir)
+
+        self.assertEqual(problems, [])
+
+    def test_a_record_with_an_unknown_role_is_a_problem(self):
+        self._write_record("a", self._base(role="whatever"))
+
+        problems, _advisories = check_runs(self.log_dir)
+
+        self.assertIn("run-log-role-invalid", self._codes(problems))
+
+    def test_a_build_record_carrying_a_role_is_a_problem(self):
+        self._write_record(
+            "a",
+            self._base(declared_purpose="build", role="treatment"),
+        )
+
+        problems, _advisories = check_runs(self.log_dir)
+
+        self.assertIn("run-log-role-on-build", self._codes(problems))
 
     def test_old_record_without_git_repo_is_an_advisory(self):
         record = self._base()

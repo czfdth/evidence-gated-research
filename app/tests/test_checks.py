@@ -12,8 +12,10 @@ import yaml
 from ccfa_core.checks import (
     CheckError,
     CheckResult,
+    export_readiness,
     run_checkpoints,
     run_milestones_due,
+    run_readiness,
     run_validate,
 )
 from ccfa_core.projects import load_project
@@ -93,6 +95,48 @@ class CheckTests(unittest.TestCase):
             result.report["human_review"]["status"],
             "pending-human-review",
         )
+
+    def test_run_readiness_returns_dimensions_and_verdicts(self):
+        project_dir = write_project(self.root, "demo")
+
+        result = run_readiness(project_dir)
+
+        self.assertEqual(result.name, "readiness")
+        self.assertFalse(result.ok)
+        report = result.report or {}
+        self.assertIn("dimensions", report)
+        self.assertIn("verdicts", report)
+        self.assertIn("schema-valid", report["dimensions"])
+        self.assertTrue(result.problems)
+
+    def test_export_readiness_writes_the_one_page_report(self):
+        project_dir = write_project(self.root, "demo", deadline="2026-10-15")
+
+        path = export_readiness(project_dir, today="2026-10-06")
+
+        self.assertEqual(
+            path,
+            project_dir / "reviews" / "readiness-2026-10-06.md",
+        )
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("# Readiness Report", text)
+        self.assertIn("还有 9 天（2026-10-15）", text)
+
+    def test_export_readiness_accepts_an_explicit_path(self):
+        project_dir = write_project(self.root, "demo")
+        target = self.root / "somewhere" / "report.md"
+
+        path = export_readiness(project_dir, out=target, today="2026-10-06")
+
+        self.assertEqual(path, target)
+        self.assertTrue(target.is_file())
+
+    def test_export_readiness_rejects_a_project_without_state(self):
+        empty = self.root / "papers" / "gone"
+        empty.mkdir(parents=True)
+
+        with self.assertRaises(CheckError):
+            export_readiness(empty, today="2026-10-06")
 
     def test_run_milestones_due_sequential_report(self):
         project_dir = write_project(self.root, "demo")

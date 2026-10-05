@@ -1,0 +1,4 @@
+id: ccfa-autoresearch
+version: 0.1.0
+entrypoint: ccfa.autoresearch
+dependencies: [ccfa-core, ccfa-experiments]

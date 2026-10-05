@@ -57,10 +57,49 @@ scripts/build-workbench.ps1
 安装是按用户进行的（不需要管理员），默认装到
 `%LOCALAPPDATA%\Programs\ccfa-workbench`，卸载时保留 `%APPDATA%` 下的设置。
 
-**安装版必须配置工作流目录**：冻结包里没有 `ccfa`，所以第一次启动后要在设置页
-填写「工作流目录」（包含 `tools/.venv` 的仓库根），或者设置环境变量
-`CCFA_WORKFLOW_ROOT`。设置本身写在 `%APPDATA%\ccfa-workbench\settings.json`。
+装完可以不做任何人工操作先跑一次自检（不启动界面）：
 
+```powershell
+& "$env:LOCALAPPDATA\Programs\ccfa-workbench\ccfa-workbench.exe" --self-check
+# {"probe_ok": true, "workflow_root": "...", "workflow_python": "...", ...}
+```
+
+`probe_ok=false` 时 `probe_detail` 会说明是找不到工作流目录、没有解释器、
+工作流目录里缺 `tools/ccfa`，还是**解释器跑不动 gate**。最后一种是真实会咬人的：
+`ccfa.readiness` 用一个缺依赖的解释器跑时，`formal-check`、`claim-candidates`
+这类 gate 会失败——而失败的 gate 长得就像「论文被阻塞」。所以 probe 会再问一次
+工作流自己的 `ccfa.doctor --imports-only`（在该解释器里真的 `import` 一遍各 gate
+的依赖，约 0.4s），缺哪个模块就照实报，而不是让报告凭空多出几条阻塞。
+「设置 → 测试连接」走的是同一条 probe。
+
+**安装版怎么找到工作流**：冻结包里没有 `ccfa`，所以启动时按下面的顺序找
+"包含 `tools/ccfa` 的目录"，第一个命中就用：
+
+1. 设置页里填的「工作流目录」（或环境变量 `CCFA_WORKFLOW_ROOT`）
+2. 安装目录下的 `workflow\`（如果发行版把工作流捆进去了）
+3. `%LOCALAPPDATA%\Programs\research-workflow`
+4. `%USERPROFILE%\research-workflow`
+5. `%USERPROFILE%\Documents\research-workflow`
+
+开发时本仓库就是第 0 个候选（`app/` 的上一级），所以本地跑无需任何配置。
+一个都找不到时，报告里会给出具体路径并提示去设置页填写。设置写在
+`%APPDATA%\ccfa-workbench\settings.json`。
+
+**捆绑运行时的现状与代价**（给"不发仓库只发 exe"的合作者用）：
+
+- 默认只捆 app（工作流要自己配目录，或放在上面几个搜索位置之一）；
+- 加上 `-BundleWorkflow` 后会多打一个自包含运行时
+  （`scripts/bundle-workflow.ps1`：embeddable CPython + `tools/` 源码 +
+  `pip --target` 依赖 → `dist/ccfa-workbench/workflow/`，实测 **169.8 MB**），
+  安装版开箱即用；
+- 为什么不用 `tools/.venv`：venv 的 `pyvenv.cfg` 指向构建机的解释器，换机器直接废；
+  嵌入版的 `._pth` 把 `..\tools` 与 `..\tools\site-packages` 写进 `sys.path`，
+  且 Python 在有 `._pth` 时会忽略 `PYTHONPATH`；
+- 嵌入版 stdlib 是**裁剪过**的（没有 `venv`、`tkinter`），所以打包脚本会
+  **逐个 import 全部 `ccfa.*` 模块**做自检（当前 84 个），缺模块在构建时就失败，
+  而不是等用户点开某个功能才崩；
+- 再往上就是 TeX/Docker/GPU 这类外部依赖：Modex 那类产品把 texlive 整体捆进
+  安装包（1GB 级），我们没有跟。
 **PySide6 版本**：`requirements.txt` 故意钉在 6.9.1 而不是最新版。用 6.11.2 冻结
 出来的程序启动即报 `DLL load failed while importing QtWidgets`（用一个 10 行的
 最小应用复现过，与本项目代码无关）。升级这个 pin 之前，一定要重跑
@@ -76,17 +115,69 @@ cd app
 ## 主界面
 
 三栏同时可见：左栏 `papers/` 下的项目（坏项目显示 `▲` 与一行原因），中栏当前项目的
-阶段/门禁/截止徽章与检查结果，右栏对话。中栏三个按钮都走工作流自己的 CLI：
+阶段/门禁/截止徽章与检查结果，右栏对话。中栏每个动作都走工作流自己的 CLI
+（`ccfa_core` 只解析 JSON，不重复实现工具语义）：
+
+项目行还会带上协作状态：`●` 正常，`◆` 表示 `ccfa.readiness --collaboration-only`
+报了问题（非 git 仓库、有未提交改动、无 remote、无 CI workflows），颜色为琥珀，鼠标
+悬停的 tooltip 逐条列出原因与提交号，工具栏汇总 `N 个项目 · … · M 个有协作风险`。
+行里不写第二段文字：侧栏只有 180px，「有未提交改动」这类后缀会被省略成「· 有未提」，
+所以状态由字形+颜色表达，细节放 tooltip。探针走 `QThreadPool` 后台线程（`ccfa_gui/
+collaboration_probe.py`），因为一次 `--collaboration-only` 约 0.6s，不能卡住刷新；
+每次刷新会递增 generation，过期结果直接丢弃。测试用
+`MainWindow(..., collaboration_probes=False)` 关掉它，只留一个真跑子进程的集成用例。
 
 界面图标来自 `ccfa_gui/icon_paths.py` 的线性路径（无 Qt 依赖，同一条路径数据
 也供 `docs/design/generate_mockups.py` 生成设计稿），工具栏最左侧是产品标记；
 没有项目可显示时中栏是空白状态（图标 + 一行提示），不是一张空表。
 
+配色跟随系统深浅色（`ccfa_gui/appearance.py` 读 `QStyleHints.colorScheme`，
+`CCFA_THEME=light|dark` 可强制覆盖），两套色板在 `theme.py` 的 `LIGHT`/`DARK`，
+键名一致并有测试钉住。窗口窄于 1000px 时右栏对话自动收起，工具栏的对话按钮
+可以手动叫回来。
+
+对话消息按角色渲染成气泡：`user` 主色淡底、`assistant` 面板、`tool` 灰底，
+`error` 红底、`stopped` 琥珀底；工具消息的 `名字 [risk] -> outcome` 会拆成
+名字 / risk chip / outcome 三段，chip 颜色跟 outcome 走。列表项仍保留纯文本
+（`item.text()` 不变），所以既有脚本消费者不受影响。
+
+气泡正文按 **Markdown** 渲染（`QTextBrowser.setMarkdown`）：列表、强调、
+链接、代码围栏都生效；代码块用等宽字体加当前模式的底色，代码行会换行
+而不是被裁掉，切换深浅色时气泡文档会按新色板重渲染。
+
+动效只解释布局变化：对话栏收起/展开是 180ms 的宽度动画，详情页切换是 140ms 淡入。
+`MainWindow(..., animations=False)` 或 `CCFA_NO_ANIM=1` 可全部关掉（测试与
+减少动效偏好都用这条路径）。
+
 | 按钮 | 调用的工作流命令 | 结果 |
 | --- | --- | --- |
 | 运行 validate | `ccfa.validate` | `ccfa.yaml` 的 schema 与状态问题 |
 | 运行 milestones | `ccfa.milestones due` | 倒排截止与 gate 缺口 |
+| 运行 readiness | `ccfa.readiness` | 一屏给出六个维度、每个 gate 的结论与阻塞清单 |
+| 阶段流转 | `ccfa.state` | 推进/回退 stage，写回 `ccfa.yaml` 并记入 `stage.history` |
 | 待人工复核 | `ccfa.readiness --checkpoints-only` | 人工复核队列：要判断什么、写进哪个台账 |
+| 导出报告（头部图标） | `ccfa.readiness --out` | 写出 `reviews/readiness-<日期>.md` 一页式报告并打开 |
+
+头部徽章的「截止」显示的是倒计时（`剩 9 天` / `已逾期 6 天` / `今天截止`），绝对日期
+在 tooltip 里：徽章行在窄窗口本来就紧，塞进完整日期会挤掉其它徽章，而 readiness 的
+Markdown 报告第一段就是 `## Summary`（投稿倒计时、阻塞条数与第一条阻塞、待人工复核
+项数），所以日期并没有丢。导出报告走工作流自己的 `render_markdown`，不是工作台另写
+一份摘要——同一篇论文不能有两套会漂移的描述。
+
+动作按钮排在一行可换行的流式布局里（`ccfa_gui/flow_layout.py`）：中栏被对话栏挤窄时
+按钮换到第二行，而不是把「运行 milestones」这类标签省略成「运行 mileston」。窄窗口
+的回归测试直接断言每个按钮的宽度不小于 `sizeHint()`。
+
+阶段流转是唯一会写盘的动作：弹窗先选定推进/回退（按钮组，只列出工作流 stage 表里
+合法的目标）、填原因，回退时再逐行列出要作废的产物；原因是必填的，工作流自己也会
+拒绝空原因。确认后由 `ccfa_core.state` 调 `ccfa.state … --confirm`，成功后工作台重新
+扫描 `papers/` 并重新选中同一个项目，所以徽章显示的是工作流写回后的状态，而不是
+界面自己的推测。
+
+readiness 视图把三样东西排进同一张表：**维度**（`schema-valid` / `evidence-present` /
+`gate-verified` / `independently-reviewed` / `scientifically-accepted` /
+`collaboration-ready`）、**gate 结论**（只列非 `pass` 的：`blocked` 琥珀、`fail` 红）、
+**阻塞项**；右侧汇总 `ready=... · N 条阻塞`，横幅给出第一条阻塞与 gate 结论计数。
 
 `--checkpoints-only` 只解析人工台账、不跑 gate，所以点它是秒级返回。结果区会切换成
 卡片列表：每条 checkpoint 一张卡（类型 chip、问题、`台账 — 答案要求`），卡片上的

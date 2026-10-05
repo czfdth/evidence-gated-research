@@ -1,0 +1,4 @@
+id: ccfa-core
+version: 0.1.0
+entrypoint: ccfa
+dependencies: []

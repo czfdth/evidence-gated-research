@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import tempfile
 import unittest
@@ -62,6 +63,18 @@ class FigureSupportAuditTests(unittest.TestCase):
             text, encoding="utf-8"
         )
 
+    def _figure_bytes(self, figure_id="main-results"):
+        """Create the delivered figure if needed; return its digest block."""
+
+        target = self.root / "figures" / f"{figure_id}.pdf"
+        if not target.is_file():
+            target.write_bytes(b"%PDF-1.4 fixture\n")
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        return (
+            "    audited_inputs:\n"
+            f"      figures/{figure_id}.pdf: sha256:{digest}\n"
+        )
+
     def _write_novelty(self, claims="  - C1\n"):
         (self.root / "data" / "novelty-audit.yaml").write_text(
             "version: 1\nclaims:\n" + claims,
@@ -96,6 +109,7 @@ class FigureSupportAuditTests(unittest.TestCase):
         reviewer='"张三"',
         reviewed_at='"2026-10-04"',
         note=None,
+        audited=True,
     ):
         body = (
             f"  - id: {figure_id}\n"
@@ -107,6 +121,8 @@ class FigureSupportAuditTests(unittest.TestCase):
         )
         if note is not None:
             body += f'    note: "{note}"\n'
+        if audited:
+            body += self._figure_bytes(figure_id)
         return body
 
     @staticmethod
@@ -152,6 +168,34 @@ class FigureSupportAuditTests(unittest.TestCase):
 
         self.assertEqual(problems, [])
         self.assertIn("figure-support-coverage", self._codes(advisories))
+
+    def test_figure_review_without_audited_inputs_is_unbound(self):
+        self._write_valid_manifest()
+        self._write_novelty()
+        self._write_ledger(self._valid_ledger())
+        # Same ledger, but the attestation does not name the bytes it read.
+        self._write_ledger(
+            "version: 1\nfigures:\n"
+            + self._entry_block(audited=False)
+        )
+
+        problems, _advisories = self._run()
+
+        self.assertIn("figure-support-unbound", self._codes(problems))
+
+    def test_editing_the_figure_after_review_is_stale(self):
+        self._write_valid_manifest()
+        self._write_novelty()
+        self._write_ledger(self._valid_ledger())
+        self.assertEqual(self._run()[0], [])
+
+        (self.root / "figures" / "main-results.pdf").write_bytes(
+            b"%PDF-1.4 fixture v2\n"
+        )
+
+        problems, _advisories = self._run()
+
+        self.assertIn("figure-support-stale", self._codes(problems))
 
     def test_attributed_text_matches_across_wrapped_lines(self):
         (self.manuscript / "main.tex").write_text(

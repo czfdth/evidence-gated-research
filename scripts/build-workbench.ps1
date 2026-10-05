@@ -13,9 +13,15 @@
 
 .PARAMETER SkipInstaller
   Run PyInstaller only, to check the frozen app without building a setup exe.
+
+.PARAMETER BundleWorkflow
+  Also stage a self-contained workflow runtime into
+  dist/ccfa-workbench/workflow/ (see scripts/bundle-workflow.ps1). The installed
+  app then needs no workflow directory configured.
 #>
 param(
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [switch]$BundleWorkflow
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,6 +47,13 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)" }
 $frozen = Join-Path $root "dist/ccfa-workbench/ccfa-workbench.exe"
 if (-not (Test-Path $frozen)) { throw "missing $frozen" }
 Write-Host "frozen app: $frozen"
+
+if ($BundleWorkflow) {
+    Write-Host "== bundle workflow runtime =="
+    & (Join-Path $PSScriptRoot "bundle-workflow.ps1") `
+        -Destination (Join-Path $root "dist/ccfa-workbench/workflow")
+    if ($LASTEXITCODE -ne 0) { throw "bundle-workflow failed (exit $LASTEXITCODE)" }
+}
 
 if ($SkipInstaller) { exit 0 }
 

@@ -21,9 +21,12 @@ from ccfa import (
     argument_audit,
     artifact_badge,
     artifact_store,
+    autoresearch,
     citation_guard,
+    claim_extract,
     cross_review,
     experiment_loop,
+    experiment_optimizer,
     final_check,
     formal_check,
     governance_map,
@@ -46,7 +49,7 @@ from ccfa import (
 )
 from ccfa.cli import Problem, ToolEnvironmentError, save_text_atomically, tool_error
 from ccfa.milestones import due_report, stage_report
-from ccfa.stages import gate_for
+from ccfa.stages import SHARED_STAGES, gate_for
 from ccfa.texscan import iter_tex_files
 from ccfa.validate import validate_yaml
 
@@ -83,6 +86,10 @@ EVIDENCE_LEDGER_PATHS = {
     "artifact-badge": Path("data/artifact-badge.yaml"),
     "formal-checks": Path("data/formal-checks.yaml"),
 }
+CLAIM_CANDIDATES_PATH = Path("data") / "claim-candidates.yaml"
+OPTIMIZATION_PROPOSALS_PATH = Path("data") / "experiment-optimization-proposals.yaml"
+RESEARCH_PLAN_CANDIDATES_PATH = Path("data") / "research-plan-candidates.yaml"
+CODE_MUTATION_PROPOSALS_PATH = Path("data") / "code-mutation-proposals.yaml"
 
 PROFILE_REQUIRED_LEDGERS = {
     "minimal": ("novelty",),
@@ -177,6 +184,30 @@ HUMAN_CHECKPOINT_SPECS = {
             "配置可验证的跨族 provider 后重跑评审，"
             "或完成外部人类评审并写 reviewer、结论与证据"
         ),
+    },
+    "claim-candidates": {
+        "type": "approve",
+        "stage": "idea",
+        "question": "自动抽取的候选 claim 中，哪些应晋升为 authoritative claim，哪些应拒绝？",
+        "answer_with": "逐条 promote/reject，并把接受项写入 data/claim-registry.yaml",
+    },
+    "optimization-proposals": {
+        "type": "approve",
+        "stage": "experiments-running",
+        "question": "自动优化产生的 keep/revert proposal 是否接受？接受项如何写回内层实验循环？",
+        "answer_with": "逐条审阅 best trial、objective 与预算，把接受项写入 data/experiment-loop.yaml",
+    },
+    "research-plans": {
+        "type": "approve",
+        "stage": "idea",
+        "question": "自动生成的研究方案中，哪些值得进入 pilot，哪些应拒绝或合并？",
+        "answer_with": "逐条审阅 problem/gap/hypothesis/实验设计与 kill criterion，把接受项写入实验循环台账",
+    },
+    "code-mutations": {
+        "type": "approve",
+        "stage": "experiments-running",
+        "question": "沙箱中的代码变异 patch 是否接受？测试证据是否足以进入下一轮？",
+        "answer_with": "逐条审阅 diff、sandbox_status 与输出，再决定是否应用 patch",
     },
 }
 
@@ -301,6 +332,41 @@ def _is_generated_readiness_record(line: str) -> bool:
     )
 
 
+COLLABORATION_BLOCKERS = (
+    "paper git worktree is dirty",
+    "paper is not a git worktree",
+    "paper git remote is missing",
+    "GitHub Actions workflows are missing",
+)
+
+
+def collaboration_blocking(git: GitSummary, profile: str) -> list[str]:
+    """Return the git/collaboration blocking reasons for *profile*.
+
+    Kept beside the full report's own inline checks (and pinned by a test that
+    compares the two) so ``--collaboration-only`` cannot quietly disagree with
+    the readiness a user sees when they run the whole thing.
+    """
+
+    blocking = []
+    if git.present and git.dirty:
+        blocking.append("paper git worktree is dirty")
+    if profile != "minimal":
+        if not git.present:
+            blocking.append("paper is not a git worktree")
+        elif not git.remotes:
+            blocking.append("paper git remote is missing")
+        if not git.workflows_present:
+            blocking.append("GitHub Actions workflows are missing")
+    return blocking
+
+
+def collaboration_is_ready(git: GitSummary) -> bool:
+    """The ``collaboration-ready`` dimension, from its one definition."""
+
+    return git.present and bool(git.remotes) and git.workflows_present
+
+
 def _ledger_status(paper_root: Path, profile: str) -> dict:
     required = set(PROFILE_REQUIRED_LEDGERS[profile])
     ledgers = {}
@@ -340,6 +406,36 @@ def _gate_result(
         "problems": [_problem_dict(problem) for problem in problems],
         "advisories": [_problem_dict(problem) for problem in advisories],
     }
+
+
+def _verdicts(
+    gate_results: list[dict],
+    missing_required: list[str],
+) -> dict[str, str]:
+    """One verdict per gate, in ARIS's vocabulary.
+
+    ``blocked`` is the important one: the gate never got to decide because its
+    input is missing, which calls for a different action than ``fail`` (the
+    audit ran and rejected the work). Collapsing both into "problem" is what
+    made the old report hard to act on.
+    """
+
+    verdicts: dict[str, str] = {}
+    for key in missing_required:
+        gate = LEDGER_GATE_NAMES.get(key)
+        if gate:
+            verdicts[gate] = "blocked"
+    for result in gate_results:
+        name = result["name"]
+        if name in verdicts:
+            continue
+        if result["status"] == "error":
+            verdicts[name] = "error"
+        elif result["status"] == "problem":
+            verdicts[name] = "fail"
+        else:
+            verdicts[name] = "pass"
+    return verdicts
 
 
 def _run_gate(name: str, runner) -> dict:
@@ -414,10 +510,53 @@ def _formal_check_gate(paper_root: Path) -> tuple[list[Problem], list[Problem]]:
     return problems, advisories
 
 
-def _gate_specs(paper_root: Path, profile: str) -> list[tuple[str, object]]:
+# Once a paper leaves the shared stages it owes a post-submission ledger, and
+# later stages owe a resubmit plan or a talk plan. These were previously
+# registered only when the artifact already existed, so a missing tail file
+# silently deleted its own gate.
+RESUBMIT_STAGES = frozenset({"resubmitted", "accepted", "archived"})
+TALK_STAGES = frozenset({"camera-ready", "accepted", "archived"})
+
+# A stage that names a tail section also owes that section. Without this, an
+# empty skeleton would satisfy the gate: the file exists, so the missing-file
+# check passes, and every section stays not-started.
+STAGE_REQUIRED_SECTIONS = {
+    "rebuttal": ("rebuttal",),
+    "major-revision": ("rebuttal",),
+    "response-letter": ("rebuttal",),
+    "resubmitted": ("resubmit",),
+}
+
+
+def _tail_requirements(state_stage: object) -> dict[str, bool]:
+    name = state_stage.get("current") if isinstance(state_stage, dict) else None
+    if not isinstance(name, str) or name in SHARED_STAGES:
+        return {}
+    required = {"post-submission": True}
+    if name in RESUBMIT_STAGES:
+        required["resubmit-pipeline"] = True
+    if name in TALK_STAGES:
+        required["talk-pipeline"] = True
+    return required
+
+
+def _tail_required_sections(state_stage: object) -> tuple[str, ...]:
+    name = state_stage.get("current") if isinstance(state_stage, dict) else None
+    if not isinstance(name, str):
+        return ()
+    return STAGE_REQUIRED_SECTIONS.get(name, ())
+
+
+def _gate_specs(
+    paper_root: Path,
+    profile: str,
+    *,
+    state_stage: object = None,
+) -> list[tuple[str, object]]:
     specs: dict[str, object] = {
         "schema-valid": lambda: _schema_gate(paper_root),
     }
+    tail = _tail_requirements(state_stage)
     runners = {
         "argument-audit": lambda: argument_audit.check(paper_root),
         "governance": lambda: governance.check(paper_root),
@@ -449,8 +588,14 @@ def _gate_specs(paper_root: Path, profile: str) -> list[tuple[str, object]]:
     if profile == "minimal":
         return list(specs.items())
 
-    if (paper_root / EVIDENCE_LEDGER_PATHS["post-submission"]).is_file():
-        specs["post-submission"] = lambda: post_submission.check(paper_root)
+    if tail.get("post-submission") or (
+        paper_root / EVIDENCE_LEDGER_PATHS["post-submission"]
+    ).is_file():
+        specs["post-submission"] = lambda: post_submission.check(
+            paper_root,
+            require_configured=bool(tail.get("post-submission")),
+            require_sections=_tail_required_sections(state_stage),
+        )
     if (paper_root / "experiments" / "log" / "run-ledger.jsonl").is_file():
         specs["run-ledger"] = lambda: run_ledger.check_ledger(paper_root)
     if (paper_root / "reviews" / "review-loop-state.json").is_file():
@@ -469,10 +614,20 @@ def _gate_specs(paper_root: Path, profile: str) -> list[tuple[str, object]]:
         specs["artifact-store"] = lambda: artifact_store.verify_store(paper_root)
     if (paper_root / "data" / "formal-checks.yaml").is_file():
         specs["formal-check"] = lambda: _formal_check_gate(paper_root)
-    if (paper_root / "data" / "resubmit-plan.yaml").is_file():
-        specs["resubmit-pipeline"] = lambda: resubmit_pipeline.check(paper_root)
-    if (paper_root / "data" / "talk-plan.yaml").is_file():
-        specs["talk-pipeline"] = lambda: talk_pipeline.check(paper_root)
+    if tail.get("resubmit-pipeline") or (
+        paper_root / "data" / "resubmit-plan.yaml"
+    ).is_file():
+        specs["resubmit-pipeline"] = lambda: resubmit_pipeline.check(
+            paper_root,
+            require_configured=bool(tail.get("resubmit-pipeline")),
+        )
+    if tail.get("talk-pipeline") or (
+        paper_root / "data" / "talk-plan.yaml"
+    ).is_file():
+        specs["talk-pipeline"] = lambda: talk_pipeline.check(
+            paper_root,
+            require_configured=bool(tail.get("talk-pipeline")),
+        )
     if (
         paper_root / "ccfa-workfiles" / "passport" / "run-ledger.yaml"
     ).is_file():
@@ -519,13 +674,41 @@ def _gate_specs(paper_root: Path, profile: str) -> list[tuple[str, object]]:
         specs["repro-package"] = lambda: repro_package.verify_bundle(
             paper_root / "submission" / "repro"
         )
+    if (paper_root / CLAIM_CANDIDATES_PATH).is_file():
+        specs["claim-candidates"] = lambda: claim_extract.check_candidates(
+            paper_root,
+            CLAIM_CANDIDATES_PATH,
+        )
+    if (paper_root / experiment_optimizer.SPEC_PATH).is_file():
+        specs["experiment-optimization"] = lambda: experiment_optimizer.check_spec(
+            paper_root
+        )
+    if (paper_root / RESEARCH_PLAN_CANDIDATES_PATH).is_file():
+        specs["research-plan-candidates"] = lambda: autoresearch.check_plan_candidates(
+            paper_root,
+            RESEARCH_PLAN_CANDIDATES_PATH,
+        )
+    if (paper_root / CODE_MUTATION_PROPOSALS_PATH).is_file():
+        specs["code-mutation-proposals"] = lambda: autoresearch.check_mutation_proposals(
+            paper_root,
+            CODE_MUTATION_PROPOSALS_PATH,
+        )
     return list(specs.items())
 
 
-def _run_gates(paper_root: Path, profile: str) -> list[dict]:
+def _run_gates(
+    paper_root: Path,
+    profile: str,
+    *,
+    state_stage: object = None,
+) -> list[dict]:
     return [
         _run_gate(name, runner)
-        for name, runner in _gate_specs(paper_root, profile)
+        for name, runner in _gate_specs(
+            paper_root,
+            profile,
+            state_stage=state_stage,
+        )
     ]
 
 
@@ -723,6 +906,34 @@ def _human_review_status(
     }
     if review_codes:
         pending.append("cross-review")
+    candidate_payload = _load_structured(paper_root / CLAIM_CANDIDATES_PATH)
+    if (
+        isinstance(candidate_payload, dict)
+        and isinstance(candidate_payload.get("claims"), list)
+        and candidate_payload["claims"]
+    ):
+        pending.append("claim-candidates")
+    proposals_payload = _load_structured(paper_root / OPTIMIZATION_PROPOSALS_PATH)
+    if (
+        isinstance(proposals_payload, dict)
+        and isinstance(proposals_payload.get("proposals"), list)
+        and proposals_payload["proposals"]
+    ):
+        pending.append("optimization-proposals")
+    plan_payload = _load_structured(paper_root / RESEARCH_PLAN_CANDIDATES_PATH)
+    if (
+        isinstance(plan_payload, dict)
+        and isinstance(plan_payload.get("plans"), list)
+        and plan_payload["plans"]
+    ):
+        pending.append("research-plans")
+    mutation_payload = _load_structured(paper_root / CODE_MUTATION_PROPOSALS_PATH)
+    if (
+        isinstance(mutation_payload, dict)
+        and isinstance(mutation_payload.get("proposals"), list)
+        and mutation_payload["proposals"]
+    ):
+        pending.append("code-mutations")
     pending = list(dict.fromkeys(pending))
     if not pending:
         status = "human-attested" if profile == "high-assurance" else "not-required"
@@ -740,7 +951,17 @@ def _human_checkpoints(pending: list[str]) -> list[dict]:
     checkpoints = []
     for key in pending:
         spec = HUMAN_CHECKPOINT_SPECS.get(key)
-        ledger = EVIDENCE_LEDGER_PATHS.get(key)
+        ledger = (
+            CLAIM_CANDIDATES_PATH
+            if key == "claim-candidates"
+            else OPTIMIZATION_PROPOSALS_PATH
+            if key == "optimization-proposals"
+            else RESEARCH_PLAN_CANDIDATES_PATH
+            if key == "research-plans"
+            else CODE_MUTATION_PROPOSALS_PATH
+            if key == "code-mutations"
+            else EVIDENCE_LEDGER_PATHS.get(key)
+        )
         checkpoints.append(
             {
                 "id": key,
@@ -753,6 +974,29 @@ def _human_checkpoints(pending: list[str]) -> list[dict]:
             }
         )
     return checkpoints
+
+
+def _deadline_summary(due: dict, today: date) -> dict:
+    """The countdown facts the one-page report leads with.
+
+    ``ccfa.milestones due`` owns the milestone schedule; this only turns its
+    deadline into the number a researcher actually looks at ("还有几天").
+    """
+
+    raw = due.get("deadline")
+    deadline = None
+    if isinstance(raw, str):
+        try:
+            deadline = date.fromisoformat(raw)
+        except ValueError:
+            deadline = None
+    days_left = (deadline - today).days if deadline is not None else None
+    return {
+        "deadline": deadline.isoformat() if deadline is not None else None,
+        "mode": due.get("mode"),
+        "days_left": days_left,
+        "overdue": bool(days_left is not None and days_left < 0),
+    }
 
 
 def _scientific_status(paper_root: Path) -> dict:
@@ -801,6 +1045,7 @@ def build_report(
     paper_root = Path(paper_root).resolve()
     state = _load_state(paper_root)
     selected_profile = _profile(state, profile)
+    today = today or date.today()
     assurance = _assurance(state)
     audit_profile = _audit_profile(selected_profile, assurance)
     state_path = paper_root / "ccfa.yaml"
@@ -808,11 +1053,15 @@ def build_report(
     stage = stage_report(paper_root)
     mode = state.get("target_venue", {}).get("mode", "conference")
     gate = gate_for(mode, stage["current"])
-    due = due_report(paper_root, today or date.today())
+    due = due_report(paper_root, today)
     ledgers = _ledger_status(paper_root, audit_profile)
     git = _git_summary(paper_root)
     scientific = _scientific_status(paper_root)
-    gate_results = _run_gates(paper_root, audit_profile)
+    gate_results = _run_gates(
+        paper_root,
+        audit_profile,
+        state_stage=stage,
+    )
     human_review = _human_review_status(paper_root, audit_profile, gate_results)
     executed_gates = [result["name"] for result in gate_results]
     drills, drill_problems = _load_gate_drills(paper_root)
@@ -883,9 +1132,9 @@ def build_report(
     elif ledgers["missing_required"]:
         gate_verified = "not-run"
 
-    collaboration_ready = (
-        git.present and bool(git.remotes) and git.workflows_present
-    )
+    verdicts = _verdicts(gate_results, ledgers["missing_required"])
+
+    collaboration_ready = collaboration_is_ready(git)
 
     return {
         "paper_root": str(paper_root),
@@ -907,11 +1156,13 @@ def build_report(
         "schema_problems": schema_problems,
         "evidence": ledgers,
         "deadline": {
+            **_deadline_summary(due, today),
             "due": due.get("due", []),
             "problems": due.get("problems", []),
             "advisories": due.get("advisories", []),
         },
         "gate_results": gate_results,
+        "verdicts": verdicts,
         "git": {
             "present": git.present,
             "dirty": git.dirty,
@@ -929,6 +1180,16 @@ def build_report(
 
 
 def render_markdown(report: dict) -> str:
+    deadline = report.get("deadline", {})
+    checkpoints = report.get("human_review", {}).get("checkpoints", [])
+    days_left = deadline.get("days_left")
+    if not deadline.get("deadline"):
+        countdown = "无截止日期（sequential 模式）"
+    elif isinstance(days_left, int) and days_left < 0:
+        countdown = f"已逾期 {abs(days_left)} 天（{deadline['deadline']}）"
+    else:
+        countdown = f"还有 {days_left} 天（{deadline['deadline']}）"
+    first_blocker = report["blocking"][0] if report["blocking"] else None
     lines = [
         "# Readiness Report",
         "",
@@ -939,17 +1200,39 @@ def render_markdown(report: dict) -> str:
         f"- stage: `{report['stage']['current']}` / gate `{report['stage']['gate']}`",
         f"- ready: `{str(report['ready']).lower()}`",
         "",
+        "## Summary",
+        "",
+        f"- 投稿倒计时: {countdown}",
+        f"- 阻塞: {len(report['blocking'])} 条"
+        + (f"（第一条：{first_blocker}）" if first_blocker else ""),
+        f"- 待人工复核: {len(checkpoints)} 项",
+        "",
         "## Dimensions",
         "",
     ]
     for key, value in report["dimensions"].items():
         lines.append(f"- `{key}`: `{value}`")
+    lines.extend(["", "## Deadline", ""])
+    lines.append(f"- mode: `{deadline.get('mode')}`")
+    lines.append(f"- deadline: `{deadline.get('deadline')}`")
+    lines.append(f"- days_left: `{days_left}`")
+    due_items = deadline.get("due", [])
+    if due_items:
+        for item in due_items:
+            if isinstance(item, dict):
+                lines.append(
+                    f"- `{item.get('checkpoint')}` ({item.get('date')})："
+                    f"stage `{item.get('stage')}` / gate `{item.get('gate')}`"
+                )
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append("- 没有到期的里程碑")
     lines.extend(["", "## Blocking", ""])
     if report["blocking"]:
         lines.extend(f"- {item}" for item in report["blocking"])
     else:
         lines.append("- none")
-    checkpoints = report.get("human_review", {}).get("checkpoints", [])
     lines.extend(["", "## Human Checkpoints", ""])
     if checkpoints:
         for item in checkpoints:
@@ -972,10 +1255,18 @@ def render_markdown(report: dict) -> str:
         codes = ", ".join(
             problem["code"] for problem in result["problems"]
         ) or "none"
+        verdict = report.get("verdicts", {}).get(result["name"], "?")
         lines.append(
-            f"- `{result['name']}`: `{result['status']}` "
+            f"- `{result['name']}`: `{verdict}` (`{result['status']}`) "
             f"(problems: {result['problem_count']}; codes: {codes})"
         )
+    for name, verdict in sorted(report.get("verdicts", {}).items()):
+        if verdict == "blocked" and all(
+            item["name"] != name for item in report["gate_results"]
+        ):
+            lines.append(
+                f"- `{name}`: `blocked` (前置台账缺失，gate 没跑)"
+            )
     lines.extend(["", "## Git And CI", ""])
     git = report["git"]
     lines.append(f"- git: `{'present' if git['present'] else 'missing'}`")
@@ -1009,6 +1300,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只输出人工复核 checkpoint，不执行 gate（给桌面工作台用）",
     )
+    parser.add_argument(
+        "--collaboration-only",
+        action="store_true",
+        help="只输出 git/GitHub 协作状态，不执行 gate（给桌面工作台用）",
+    )
     return parser
 
 
@@ -1029,6 +1325,29 @@ def main(argv: list[str]) -> int:
                 "assurance": assurance or _default_assurance(selected_profile),
                 "audit_profile": audit_profile,
                 "human_review": _human_review_status(paper_root, audit_profile),
+            }
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.collaboration_only:
+            # The project list needs the collaboration facts, not 25 gate
+            # subprocesses: same git probe, same dirty definition (generated
+            # readiness records still do not count as user changes).
+            state = _load_state(paper_root)
+            selected_profile = _profile(state, args.profile)
+            git = _git_summary(paper_root)
+            payload = {
+                "paper_root": str(paper_root),
+                "profile": selected_profile,
+                "git": {
+                    "present": git.present,
+                    "dirty": git.dirty,
+                    "commit": git.commit,
+                    "remotes": git.remotes,
+                    "workflows_present": git.workflows_present,
+                    "error": git.error,
+                },
+                "blocking": collaboration_blocking(git, selected_profile),
+                "collaboration_ready": collaboration_is_ready(git),
             }
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
             return 0

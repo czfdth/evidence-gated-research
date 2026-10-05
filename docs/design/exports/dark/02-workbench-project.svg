@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <rect x="0" y="0" width="1280" height="800" fill="#141419"/>
+  <g id="toolbar">
+    <rect x="0" y="0" width="1280" height="40" rx="0" fill="#1e1e24"/>
+    <line x1="0" y1="40" x2="1280" y2="40" stroke="#2e2e37" stroke-width="1"/>
+    <rect x="10" y="9" width="22" height="22" rx="5.5" fill="#7c7aff"/><g transform="translate(10,9) scale(0.9166666666666666)"><path d="M7 8h10" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/><path d="M7 12h10" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16h6" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/></g>
+    <text x="40" y="25" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="600" fill="#f2f2f5" text-anchor="start">论文工作台</text>
+    <rect x="122" y="6" width="80" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/><g transform="translate(131,12.0) scale(0.6666666666666666)" fill="none" stroke="#f2f2f5" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></g><text x="174.5" y="24.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="middle">刷新</text>
+    <rect x="210" y="6" width="74" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/><g transform="translate(219,12.0) scale(0.6666666666666666)" fill="none" stroke="#f2f2f5" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></g><text x="259.5" y="24.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="middle">设置</text>
+    <rect x="292" y="6" width="36" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/><g transform="translate(301,12.0) scale(0.6666666666666666)" fill="none" stroke="#f2f2f5" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6l-4 4V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></g><text x="322.5" y="24.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="middle"></text>
+    <text x="1268" y="24" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#a1a1aa" text-anchor="end">3 个项目 · 1 个无法读取</text>
+  </g>
+  <g id="project-list">
+    <rect x="8" y="48" width="220" height="720" rx="6" fill="#1e1e24" stroke="#2e2e37" stroke-width="1"/>
+    <text x="20" y="72" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="600" fill="#a1a1aa" text-anchor="start">项目</text>
+    <rect x="16" y="82" width="204" height="28" rx="4" fill="none"/>
+    <text x="24" y="101" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#ff7b72" text-anchor="start">▲ broken-project</text>
+    <text x="38" y="120" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#ff7b72" text-anchor="start">无法解析 ccfa.yaml</text>
+    <rect x="16" y="126" width="204" height="28" rx="4" fill="#2b2b45"/>
+    <text x="24" y="145" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">● example-paper</text>
+    <rect x="16" y="158" width="204" height="28" rx="4" fill="none"/>
+    <text x="24" y="177" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">● shadowmem-extension</text>
+  </g>
+  <g id="detail-header">
+    <rect x="236" y="48" width="608" height="96" rx="6" fill="#1e1e24" stroke="#2e2e37" stroke-width="1"/>
+    <text x="250" y="80" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="17" font-weight="600" fill="#f2f2f5" text-anchor="start">example-paper</text>
+    <text x="250" y="102" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#a1a1aa" text-anchor="start">模式 conference · 更新于 2026-10-05</text>
+    <rect x="804" y="60" width="26" height="26" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/>
+    <g transform="translate(809,65) scale(0.6666666666666666)" fill="none" stroke="#a1a1aa" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></g>
+    <rect x="250" y="112" width="147.6" height="20" rx="4" fill="#26262e" stroke="#2e2e37" stroke-width="1"/><text x="323.8" y="126" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#f2f2f5" text-anchor="middle">阶段 internal-review</text>
+    <rect x="409.6" y="112" width="140.4" height="20" rx="4" fill="#26262e" stroke="#2e2e37" stroke-width="1"/><text x="479.8" y="126" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#f2f2f5" text-anchor="middle">门禁 review_cleared</text>
+    <rect x="562.0" y="112" width="111.60000000000001" height="20" rx="4" fill="#26262e" stroke="#2e2e37" stroke-width="1"/><text x="617.8" y="126" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#f2f2f5" text-anchor="middle">截止 2027-02-15</text>
+  </g>
+  <g id="action-row">
+    <rect x="236" y="152" width="118" height="28" rx="6" fill="#7c7aff" stroke="#7c7aff" stroke-width="1"/><g transform="translate(245,158.0) scale(0.6666666666666666)" fill="none" stroke="#ffffff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></g><text x="307.5" y="170.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle">运行 validate</text>
+    <rect x="362" y="152" width="138" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/><g transform="translate(371,158.0) scale(0.6666666666666666)" fill="none" stroke="#f2f2f5" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></g><text x="443.5" y="170.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="middle">运行 milestones</text>
+    <text x="840" y="171" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#3ddc97" text-anchor="end">1 条结果 · 全部通过</text>
+  </g>
+  <g id="results-table">
+    <rect x="236" y="188" width="608" height="526" rx="6" fill="#1e1e24" stroke="#2e2e37" stroke-width="1"/>
+    <rect x="237" y="189" width="606" height="28" rx="5" fill="#232329"/>
+    <line x1="237" y1="217" x2="843" y2="217" stroke="#2e2e37" stroke-width="1"/>
+    <text x="250" y="208" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="600" fill="#a1a1aa" text-anchor="start">来源</text>
+    <text x="326" y="208" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="600" fill="#a1a1aa" text-anchor="start">代码</text>
+    <text x="426" y="208" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="600" fill="#a1a1aa" text-anchor="start">消息</text>
+    <text x="250" y="236" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">validate</text>
+    <text x="326" y="236" font-family="'JetBrains Mono', Consolas, 'Cascadia Mono', monospace" font-size="11" font-weight="600" fill="#3ddc97" text-anchor="start">OK</text>
+    <text x="426" y="236" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">无问题</text>
+    <line x1="237" y1="246" x2="843" y2="246" stroke="#2a2a33" stroke-width="1"/>
+  </g>
+  <g id="chat-panel">
+    <rect x="852" y="48" width="420" height="720" rx="6" fill="#1e1e24" stroke="#2e2e37" stroke-width="1"/>
+    <text x="864" y="72" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="600" fill="#a1a1aa" text-anchor="start">对话</text>
+    <text x="864" y="104" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">引擎</text>
+    <rect x="1094" y="88" width="166" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/>
+    <text x="1106" y="106" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="start">OpenAI 兼容</text>
+    <rect x="864" y="128" width="396" height="420" rx="6" fill="#1e1e24" stroke="#2e2e37" stroke-width="1"/>
+    <text x="864" y="572" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#a1a1aa" text-anchor="start">已连接 deepseek-v4-flash</text>
+    <rect x="864" y="582" width="396" height="96" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/>
+    <text x="876" y="606" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#a1a1aa" text-anchor="start">输入消息，Ctrl+Enter 发送</text>
+    <rect x="864" y="726" width="74" height="28" rx="6" fill="#1e1e24" stroke="#3a3a45" stroke-width="1"/><g transform="translate(873,732.0) scale(0.6666666666666666)" fill="none" stroke="#f2f2f5" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></g><text x="913.5" y="744.0" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="12" font-weight="400" fill="#f2f2f5" text-anchor="middle">发送</text>
+  </g>
+  <g id="status-bar">
+    <rect x="0" y="776" width="1280" height="24" rx="0" fill="#1e1e24"/>
+    <line x1="0" y1="776" x2="1280" y2="776" stroke="#2e2e37" stroke-width="1"/>
+    <text x="12" y="792" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#a1a1aa" text-anchor="start">工作流：默认（仓库根）</text>
+    <text x="1268" y="792" font-family="'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="11" font-weight="400" fill="#3ddc97" text-anchor="end">凭据可用</text>
+  </g>
+</svg>

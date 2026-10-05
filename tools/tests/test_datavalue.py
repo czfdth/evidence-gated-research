@@ -53,6 +53,24 @@ class TestValuesMatch(unittest.TestCase):
         self.assertTrue(values_match("10", 10.05, tolerance=0.1))
         self.assertFalse(values_match("10", 10.05))
 
+    def test_a_decimal_claim_too_coarse_to_pin_the_source_is_rejected(self):
+        # "0.1" implies a half-unit tolerance of 0.05, which is 35% of 0.143:
+        # the claim no longer says anything about the value it is meant to
+        # trace, so dropping precision must not buy an easier pass.
+        self.assertFalse(values_match("0.1", 0.143))
+
+    def test_two_significant_figures_still_count_as_a_rounding(self):
+        self.assertTrue(values_match("0.14", 0.143))
+        self.assertTrue(values_match("1.2", 1.234))
+
+    def test_the_precision_cap_can_be_switched_off(self):
+        self.assertTrue(values_match("0.1", 0.143, max_rounding_error=0.0))
+
+    def test_the_cap_leaves_exact_and_integer_claims_alone(self):
+        self.assertTrue(values_match("0.143", 0.143))
+        self.assertTrue(values_match("43", 43))
+        self.assertFalse(values_match("43", 43.4))
+
 
 if __name__ == "__main__":
     unittest.main()

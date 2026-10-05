@@ -1,0 +1,4 @@
+id: ccfa-claims
+version: 0.1.0
+entrypoint: ccfa.claim_extract
+dependencies: [ccfa-core]

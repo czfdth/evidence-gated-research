@@ -49,6 +49,34 @@ class TestCheck(BaseCase):
         problems, _ = self.run_check()
         self.assertEqual(problems, [])
 
+    def test_a_coarse_claim_fails_and_says_precision_is_the_reason(self):
+        self.write_doc("\\dataval{results.json:summary.lcoe}{0.1}")
+
+        problems, _ = self.run_check()
+
+        self.assertEqual(self.codes(problems), ["dataval-mismatch"])
+        self.assertIn("小数位不足", problems[0].message)
+        self.assertIn("--max-rounding-error 0", problems[0].message)
+
+    def test_the_precision_cap_can_be_disabled_from_the_cli(self):
+        self.write_doc("\\dataval{results.json:summary.lcoe}{0.1}")
+        out, err = io.StringIO(), io.StringIO()
+
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main(
+                [
+                    "trace_claims.py",
+                    "--doc",
+                    str(self.doc),
+                    "--base-dir",
+                    str(self.root),
+                    "--max-rounding-error",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(code, 0, out.getvalue() + err.getvalue())
+
     def test_mismatch_is_a_problem_with_location(self):
         self.write_doc("\\dataval{results.json:summary.lcoe}{0.5}")
         problems, _ = self.run_check()

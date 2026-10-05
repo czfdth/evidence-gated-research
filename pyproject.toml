@@ -22,4 +22,4 @@ package-dir = {"" = "tools"}
 
 [tool.setuptools.packages.find]
 where = ["tools"]
-include = ["ccfa*", "newpaper*"]
+include = ["ccfa*", "newpaper*", "install*"]

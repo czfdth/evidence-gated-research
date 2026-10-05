@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -7,7 +8,9 @@ import yaml
 from ccfa_core.projects import (
     ProjectError,
     ProjectState,
+    deadline_note,
     find_projects,
+    gate_for,
     load_project,
 )
 
@@ -73,6 +76,40 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(state.gate, "revision_planned")
         self.assertEqual(state.deadline, "2027-05-01")
         self.assertEqual(state.updated_at, "2026-10-04")
+
+    def test_deadline_note_counts_down_to_the_target_date(self):
+        self.assertEqual(
+            deadline_note("2026-10-15", today=date(2026, 10, 6)),
+            "剩 9 天",
+        )
+        self.assertEqual(
+            deadline_note("2026-10-06", today=date(2026, 10, 6)),
+            "今天截止",
+        )
+
+    def test_deadline_note_flags_an_overdue_target(self):
+        self.assertEqual(
+            deadline_note("2026-09-30", today=date(2026, 10, 6)),
+            "已逾期 6 天",
+        )
+
+    def test_deadline_note_without_a_date_is_plain_none(self):
+        self.assertEqual(deadline_note(None), "无")
+        self.assertEqual(deadline_note(""), "无")
+
+    def test_load_project_carries_the_gate_criterion(self):
+        project_dir = write_project(
+            self.root,
+            "demo",
+            mode="journal",
+            stage="major-revision",
+        )
+
+        state = load_project(project_dir)
+
+        expected = gate_for(state.mode, state.current_stage)["criterion"].strip()
+        self.assertTrue(expected)
+        self.assertEqual(state.gate_criterion, expected)
 
     def test_load_project_accepts_the_yaml_file_path(self):
         project_dir = write_project(self.root, "demo")

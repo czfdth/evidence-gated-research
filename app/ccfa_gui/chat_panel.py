@@ -7,14 +7,23 @@ stop notifications come back to the GUI thread through Qt signals.
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QKeySequence,
+    QShortcut,
+    QTextCursor,
+    QTextOption,
+)
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,6 +32,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -43,6 +54,19 @@ ENGINE_CODEX = "codex"
 
 WRITE_CONFIRM_TIMEOUT_S = 300.0
 
+# QTextDocument cannot resolve the workbench stylesheet, so the code style is
+# built from the palette in code: monospace always, plus the mode's chip colour
+# as the code background.
+CODE_FONT = "'JetBrains Mono', Consolas, 'Cascadia Mono', monospace"
+
+
+def markdown_style(mode: object = "light") -> str:
+    background = theme.palette(mode)["code_bg"]
+    return (
+        f"code, pre {{ font-family: {CODE_FONT}; background-color: "
+        f"{background}; }}"
+    )
+
 ROLE_PREFIXES = {
     "user": "你",
     "assistant": "助手",
@@ -57,6 +81,27 @@ ROLE_COLORS = {
     "stopped": QColor("#8a6d00"),
     "tool": QColor("#5b2c86"),
 }
+
+
+def _split_tool(text: str) -> tuple[str, str, str]:
+    """Split ``name [risk] -> outcome`` into its three parts."""
+
+    name, separator, rest = text.partition(" [")
+    if not separator:
+        return text, "", ""
+    risk, bracket, tail = rest.partition("]")
+    if not bracket:
+        return text, "", ""
+    return name.strip(), risk.strip(), tail.lstrip(" ->").strip()
+
+
+def _tool_state(outcome: str) -> str:
+    lowered = outcome.casefold()
+    if lowered.startswith(("ok", "allowed", "confirmed", "success")):
+        return "ok"
+    if lowered.startswith(("error", "denied", "refused", "fail")):
+        return "problem"
+    return "advisory"
 
 
 def default_engine_factory(*, kind, model, settings, secret_store):
@@ -112,6 +157,7 @@ class ChatPanel(QWidget):
         self._cancel_event = None
         self._running = False
         self._in_flight_text = ""
+        self._mode = theme.DEFAULT_MODE
         self._tool_bridge = None
         self._project_root = None
         self._registry_issue_codes = ()
@@ -555,8 +601,142 @@ class ChatPanel(QWidget):
         item.setForeground(QBrush(ROLE_COLORS.get(role, QColor("#333333"))))
         item.setToolTip(str(text))
         self.message_list.addItem(item)
+        # The item keeps its plain text (consumers read item.text()), while the
+        # widget draws the bubble. Both carry the same content.
+        bubble = self._bubble(role, str(text))
+        item.setSizeHint(bubble.sizeHint())
+        self.message_list.setItemWidget(item, bubble)
+        # The first size hint is computed before the stylesheet is applied to
+        # the new widget, which clips one-line bubbles; measure again now and
+        # once more after the event loop has polished it.
+        self._relayout_bubbles()
+        QTimer.singleShot(0, self._relayout_bubbles)
         self.message_list.scrollToBottom()
         return item
+
+    def _bubble(self, role: str, text: str) -> QWidget:
+        """One message card: role line, optional chip, wrapped body."""
+
+        bubble = QFrame()
+        bubble.setObjectName("chatBubble")
+        bubble.setProperty("role", role)
+        column = QVBoxLayout(bubble)
+        column.setContentsMargins(10, 8, 10, 8)
+        column.setSpacing(4)
+
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        title = QLabel(ROLE_PREFIXES.get(role, role))
+        title.setObjectName("chatRole")
+        head.addWidget(title)
+
+        body_text = text
+        if role == "tool":
+            tool, risk, outcome = _split_tool(text)
+            if risk:
+                title.setText(tool)
+                chip = QLabel(risk)
+                chip.setObjectName("chatChip")
+                chip.setProperty("state", _tool_state(outcome))
+                head.addWidget(chip)
+            body_text = outcome or text
+        head.addStretch(1)
+        column.addLayout(head)
+
+        # A read-only text view renders the Markdown subset we care about
+        # (lists, code fences, emphasis, links) with a document stylesheet, so
+        # code is actually monospaced. The list item keeps the raw text.
+        body = QTextBrowser()
+        body.setObjectName("chatBody")
+        body.setFrameShape(QFrame.Shape.NoFrame)
+        body.setOpenExternalLinks(False)
+        body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        body.document().setDocumentMargin(0)
+        wrap = QTextOption()
+        wrap.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        body.document().setDefaultTextOption(wrap)
+        self._render_body(body, body_text)
+        body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        column.addWidget(body)
+        return bubble
+
+    def _render_body(self, body: QTextBrowser, text: str) -> None:
+        """Render Markdown into *body* using the current mode's code style."""
+
+        body.setProperty("rawText", text)
+        body.document().setDefaultStyleSheet(markdown_style(self._mode))
+        body.setMarkdown(text)
+        # Markdown code fences arrive as non-breakable lines, which would be
+        # clipped inside a 400px bubble; let them wrap like the prose.
+        cursor = QTextCursor(body.document())
+        code_background = QBrush(QColor(theme.palette(self._mode)["code_bg"]))
+        block = body.document().begin()
+        while block.isValid():
+            block_format = block.blockFormat()
+            if block_format.nonBreakableLines():
+                block_format.setNonBreakableLines(False)
+                # Qt's markdown importer marks code fences as non-breakable
+                # blocks; that flag is the reliable "this is code" marker, so
+                # the background goes on here rather than through the
+                # stylesheet (which the importer ignores for block backgrounds).
+                block_format.setBackground(code_background)
+                cursor.setPosition(block.position())
+                cursor.setBlockFormat(block_format)
+            block = block.next()
+
+    def set_theme_mode(self, mode: object) -> None:
+        """Re-render every bubble when the palette (and so code style) changes."""
+
+        wanted = theme.normalise_mode(mode)
+        if wanted == self._mode:
+            return
+        self._mode = wanted
+        for row in range(self.message_list.count()):
+            widget = self.message_list.itemWidget(self.message_list.item(row))
+            body = (
+                widget.findChild(QTextBrowser, "chatBody")
+                if widget is not None
+                else None
+            )
+            if body is None:
+                continue
+            raw = body.property("rawText")
+            if isinstance(raw, str):
+                self._render_body(body, raw)
+        self._relayout_bubbles()
+
+    def _relayout_bubbles(self) -> None:
+        """Re-wrap bubbles after the list width changes."""
+
+        available = max(160, self.message_list.viewport().width() - 24)
+        for row in range(self.message_list.count()):
+            item = self.message_list.item(row)
+            widget = self.message_list.itemWidget(item)
+            if widget is None:
+                continue
+            # A fixed width makes the body's viewport width deterministic, so
+            # the document is laid out to exactly the space it gets drawn in.
+            widget.setFixedWidth(available)
+            body = widget.findChild(QTextBrowser, "chatBody")
+            if body is not None:
+                viewport = max(120, body.viewport().width())
+                body.document().setTextWidth(viewport)
+                body.setFixedHeight(
+                    math.ceil(body.document().size().height()) + 2
+                )
+            widget.adjustSize()
+            item.setSizeHint(widget.sizeHint())
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._relayout_bubbles()
 
     def _set_hint(self, text: str) -> None:
         self.hint_label.setText(text)

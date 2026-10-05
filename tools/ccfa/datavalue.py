@@ -4,6 +4,13 @@ A manuscript rounds numbers for readability, so exact equality is the wrong
 test. A claim written to three decimals implies a half-unit tolerance in the
 last place -- that rule is what keeps a correct draft from failing on every
 rounded figure, without one hand-picked global tolerance.
+
+That rule alone is backwards in one direction: the fewer decimals a claim
+carries, the wider its allowance, so writing ``0.1`` instead of ``0.143``
+makes a mismatch easier to pass. ``max_rounding_error`` caps the allowance at
+a fraction of the value's own magnitude, so a decimal claim has to resolve the
+source to roughly two significant figures before it counts as a rounding of
+it. Integer claims are unaffected: they already imply an exact match.
 """
 
 from __future__ import annotations
@@ -11,6 +18,10 @@ from __future__ import annotations
 import re
 
 _THOUSANDS = re.compile(r"^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
+
+# The implied half-unit may not exceed this fraction of the value's magnitude.
+# 5% is roughly "two significant figures"; 0 disables the cap.
+DEFAULT_MAX_ROUNDING_ERROR = 0.05
 
 
 def _parse_number(value: object) -> float | None:
@@ -36,6 +47,7 @@ def values_match(
     actual: object,
     tolerance: float = 1e-9,
     rel_tolerance: float = 0.0,
+    max_rounding_error: float = DEFAULT_MAX_ROUNDING_ERROR,
 ) -> bool:
     claimed_text = claimed.strip()
     actual_text = str(actual).strip()
@@ -56,4 +68,13 @@ def values_match(
         abs(claimed_number), abs(actual_number)
     ):
         return True
-    return difference <= implied_rounding_tolerance(claimed_text)
+    implied = implied_rounding_tolerance(claimed_text)
+    if implied <= 0.0:
+        return False
+    if max_rounding_error > 0:
+        magnitude = max(abs(claimed_number), abs(actual_number))
+        if implied > max_rounding_error * magnitude:
+            # The claim is too coarse to pin the source down: accepting it
+            # would reward dropping precision.
+            return False
+    return difference <= implied

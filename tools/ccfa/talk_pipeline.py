@@ -57,10 +57,23 @@ def _string_list(value: object, *, allow_empty: bool = False) -> bool:
     return all(isinstance(item, str) and item.strip() for item in value)
 
 
-def check(paper_root: Path) -> tuple[list[Problem], list[Problem]]:
+def check(
+    paper_root: Path,
+    *,
+    require_configured: bool = False,
+) -> tuple[list[Problem], list[Problem]]:
     paper_root = Path(paper_root).resolve()
     path = paper_root / PLAN
     if not path.is_file():
+        if require_configured:
+            return [
+                Problem(
+                    "talk-plan-missing",
+                    str(path),
+                    None,
+                    "已进入需要口头报告的 tail stage，但没有 talk plan",
+                )
+            ], []
         return [], [
             Problem(
                 "talk-plan-not-configured",

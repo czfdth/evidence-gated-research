@@ -24,6 +24,10 @@ from ccfa import cli
 from ccfa.cli import Problem, ToolEnvironmentError, emit, save_text_atomically, tool_error
 
 VALID_PURPOSES = ("experiment", "build")
+# What a run *is* inside an experiment, which is a different question from
+# whether it is an experiment at all. A treatment-only log cannot support an
+# effect claim: nothing in it rules out the obvious confound.
+VALID_ROLES = ("treatment", "negative-control", "ablation", "baseline")
 _MIN_EXEMPTION_REASON = 20
 
 
@@ -262,6 +266,7 @@ def run_command(
     notes: str | None = None,
     purpose: str = "experiment",
     purpose_reason: str | None = None,
+    role: str | None = None,
     dirty_waiver: str | None = None,
     policy: dict | None = None,
     runner=None,
@@ -273,6 +278,16 @@ def run_command(
         raise ValueError(
             f"purpose 非法: {purpose!r}，应为 {' / '.join(VALID_PURPOSES)}"
         )
+    if role is not None:
+        if role not in VALID_ROLES:
+            raise ValueError(
+                f"role 非法: {role!r}，应为 {' / '.join(VALID_ROLES)}"
+            )
+        if purpose != "experiment":
+            raise ValueError(
+                f"只有 experiment 运行能声明 role: 这次运行声明为 {purpose}，"
+                "构建运行没有科学角色"
+            )
     log_dir = Path(log_dir)
     paper_root = Path(paper_root)
     runner = runner or _subprocess_runner
@@ -300,6 +315,7 @@ def run_command(
         "notes": notes,
         "declared_purpose": purpose,
         "purpose_reason": purpose_reason,
+        "role": role,
         "dirty_waiver": dirty_waiver,
         "policy": _json_safe(policy) if policy is not None else None,
         "resource_usage": None,
@@ -415,6 +431,28 @@ def check_runs(
             continue
         status = record.get("status")
         started = _parse_started(record.get("started_at"))
+        role = record.get("role")
+        if role is not None:
+            declared = record.get("declared_purpose", record.get("purpose"))
+            if role not in VALID_ROLES:
+                problems.append(
+                    Problem(
+                        "run-log-role-invalid",
+                        str(path),
+                        None,
+                        f"role 非法: {role!r}，应为 {' / '.join(VALID_ROLES)}",
+                    )
+                )
+            elif declared == "build":
+                problems.append(
+                    Problem(
+                        "run-log-role-on-build",
+                        str(path),
+                        None,
+                        "声明为 build 的运行不能带科学 role"
+                        "（build 不是实验条件）",
+                    )
+                )
         if status not in {"running", "completed", "failed"}:
             problems.append(
                 Problem(
@@ -567,6 +605,16 @@ def main(argv: list[str]) -> int:
             "缺该理由（至少 20 字符）时 run-log check 会把脏树运行判为 problem"
         ),
     )
+    run.add_argument(
+        "--role",
+        choices=VALID_ROLES,
+        default=None,
+        help=(
+            "这次 experiment 运行在实验里扮演什么角色（treatment / "
+            "negative-control / ablation / baseline）。supported 的 effect "
+            "实证 claim 必须引用至少一个 negative-control 或 ablation"
+        ),
+    )
     run.add_argument("--propagate-exit", action="store_true")
     run.add_argument("command", nargs=argparse.REMAINDER)
 
@@ -611,6 +659,7 @@ def main(argv: list[str]) -> int:
             notes=args.notes,
             purpose=args.purpose,
             purpose_reason=args.purpose_reason,
+            role=args.role,
             dirty_waiver=args.dirty_waiver,
         )
     except (ValueError, ToolEnvironmentError) as exc:

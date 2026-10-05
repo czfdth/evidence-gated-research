@@ -4,7 +4,8 @@ Design tokens are loaded straight out of ``app/ccfa_gui/theme.py`` (by file, so
 no Qt import is needed), which means the mockups cannot drift from the shipped
 stylesheet. Run:
 
-    python docs/design/generate_mockups.py
+    python docs/design/generate_mockups.py                 # light -> exports/
+    CCFA_MOCKUP_MODE=dark python docs/design/generate_mockups.py   # -> exports/dark/
 
 Figma import: drag the SVG onto the canvas. Text stays editable and every
 ``<g id=...>`` becomes a named layer.
@@ -13,6 +14,7 @@ Figma import: drag the SVG onto the canvas. Text stays editable and every
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,21 +40,59 @@ def _load_icon_paths():
 T = _load_theme()
 ICONS = _load_icon_paths()
 
-ACCENT = T.ACCENT
-ACCENT_HOVER = T.ACCENT_HOVER
-INK = T.INK
-MUTED = T.MUTED
-LINE = T.LINE
-CANVAS = T.CANVAS
-PANEL = T.PANEL
-PROBLEM = T.PROBLEM
-ADVISORY = T.ADVISORY
-OK = T.OK
-CHIP = "#f2f4f7"
-SELECTED = "#e8f0fe"
-FIELD_BORDER = "#d0d5dd"
+# Light and dark exports come from the same source: pick the palette up front,
+# so every default argument and literal below binds to the chosen mode.
+MODE = os.environ.get("CCFA_MOCKUP_MODE", "light").strip().casefold()
+MODE = "dark" if MODE == "dark" else "light"
+PALETTE = T.palette(MODE)
+
+ACCENT = PALETTE["accent"]
+ACCENT_HOVER = PALETTE["accent_hover"]
+INK = PALETTE["ink"]
+MUTED = PALETTE["muted"]
+LINE = PALETTE["line"]
+CANVAS = PALETTE["canvas"]
+PANEL = PALETTE["panel"]
+PROBLEM = PALETTE["problem"]
+ADVISORY = PALETTE["advisory"]
+OK = PALETTE["ok"]
+CHIP = PALETTE["chip"]
+SELECTED = PALETTE["row_selected"]
+FIELD_BORDER = PALETTE["field_border"]
+TABLE_HEADER = PALETTE["table_header"]
+GRIDLINE = PALETTE["gridline"]
+PLACEHOLDER_ICON = PALETTE["placeholder_icon"]
+ERROR_BG = PALETTE["badge_problem_bg"]
+ERROR_BORDER = PALETTE["badge_problem_border"]
+PENDING_BG = PALETTE["banner_pending_bg"]
+PENDING_BORDER = PALETTE["banner_pending_border"]
 MONO = "'JetBrains Mono', Consolas, 'Cascadia Mono', monospace"
 SANS = "'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif"
+
+# Chat bubble roles: role label, fill, border, label colour.
+BUBBLES = {
+    "user": {"label": "你", "fill": SELECTED, "border": LINE, "text": ACCENT},
+    "assistant": {"label": "助手", "fill": PANEL, "border": LINE, "text": MUTED},
+    "tool": {"label": "read_file  [read]", "fill": CHIP, "border": LINE, "text": OK},
+    "tool-denied": {
+        "label": "write_file  [write]",
+        "fill": CHIP,
+        "border": LINE,
+        "text": PROBLEM,
+    },
+    "error": {
+        "label": "错误",
+        "fill": ERROR_BG,
+        "border": ERROR_BORDER,
+        "text": PROBLEM,
+    },
+    "stopped": {
+        "label": "已停止",
+        "fill": PENDING_BG,
+        "border": PENDING_BORDER,
+        "text": ADVISORY,
+    },
+}
 
 W, H = 1280, 800
 TOOLBAR_H = 40
@@ -238,13 +278,14 @@ def chip(svg: Svg, x: float, y: float, label: str, *, fill: str = CHIP,
 
 def toolbar(svg: Svg, summary: str) -> None:
     parts = [
-        svg.rect(0, 0, W, TOOLBAR_H, fill=PANEL),
-        svg.line(0, TOOLBAR_H, W, TOOLBAR_H),
+        svg.rect(0, 0, svg.width, TOOLBAR_H, fill=PANEL),
+        svg.line(0, TOOLBAR_H, svg.width, TOOLBAR_H),
         svg.mark(10, 9),
         svg.text(40, 25, "论文工作台", size=12, weight=600),
         button(svg, 122, 6, 80, "刷新", icon_name="refresh"),
         button(svg, 210, 6, 74, "设置", icon_name="settings"),
-        svg.text(W - 12, 24, summary, size=12, fill=MUTED, anchor="end"),
+        button(svg, 292, 6, 36, "", icon_name="chat"),
+        svg.text(svg.width - 12, 24, summary, size=12, fill=MUTED, anchor="end"),
     ]
     svg.layer("toolbar", *parts)
 
@@ -253,10 +294,10 @@ def status_bar(svg: Svg, workflow: str, credential: str) -> None:
     y = H - STATUS_H
     svg.layer(
         "status-bar",
-        svg.rect(0, y, W, STATUS_H, fill=PANEL),
-        svg.line(0, y, W, y),
+        svg.rect(0, y, svg.width, STATUS_H, fill=PANEL),
+        svg.line(0, y, svg.width, y),
         svg.text(12, y + 16, workflow, size=11, fill=MUTED),
-        svg.text(W - 12, y + 16, credential, size=11, fill=OK, anchor="end"),
+        svg.text(svg.width - 12, y + 16, credential, size=11, fill=OK, anchor="end"),
     )
 
 
@@ -265,7 +306,8 @@ def project_list(
     items: list[tuple[str, str | None]],
     selected: int,
 ) -> None:
-    x, y, w, h = MARGIN, BODY_Y, SIDEBAR_W, BODY_H
+    x, y, w = MARGIN, BODY_Y, SIDEBAR_W
+    h = svg.height - BODY_Y - STATUS_H - MARGIN
     parts = [
         svg.rect(x, y, w, h, fill=PANEL, stroke=LINE, r=6),
         svg.text(x + 12, y + 24, "项目", size=11, fill=MUTED, weight=600),
@@ -288,7 +330,8 @@ def project_list(
 
 
 def chat_panel(svg: Svg, configured: bool, messages: list[tuple[str, str]] | None = None) -> None:
-    x, y, w, h = CHAT_X, BODY_Y, CHAT_W, BODY_H
+    x, y, w = CHAT_X, BODY_Y, CHAT_W
+    h = svg.height - BODY_Y - STATUS_H - MARGIN
     parts = [
         svg.rect(x, y, w, h, fill=PANEL, stroke=LINE, r=6),
         svg.text(x + 12, y + 24, "对话", size=11, fill=MUTED, weight=600),
@@ -300,13 +343,45 @@ def chat_panel(svg: Svg, configured: bool, messages: list[tuple[str, str]] | Non
     box_h = h - 300
     parts.append(svg.rect(x + 12, box_y, w - 24, box_h, fill=PANEL, stroke=LINE, r=6))
     if messages:
-        text_y = box_y + 26
-        for author, body in messages:
+        bubble_y = box_y + 10
+        for role, body in messages:
+            lines = body.split("\n")
+            bubble_h = 40 + 18 * len(lines)
             parts.append(
-                svg.text(x + 26, text_y, author, size=11, fill=MUTED, weight=600)
+                svg.rect(
+                    x + 22,
+                    bubble_y,
+                    w - 44,
+                    bubble_h,
+                    fill=BUBBLES[role]["fill"],
+                    stroke=BUBBLES[role]["border"],
+                    r=6,
+                )
             )
-            parts.append(svg.text(x + 26, text_y + 20, body, size=12))
-            text_y += 56
+            parts.append(
+                svg.text(
+                    x + 34,
+                    bubble_y + 22,
+                    BUBBLES[role]["label"],
+                    size=11,
+                    fill=BUBBLES[role]["text"],
+                    weight=600,
+                )
+            )
+            for index, line in enumerate(lines):
+                # A leading ">" marks a code line: monospace, like the app.
+                code = line.startswith(">")
+                parts.append(
+                    svg.text(
+                        x + 34,
+                        bubble_y + 38 + index * 18,
+                        clip(line.lstrip(">"), 40 if code else 34),
+                        size=12,
+                        fill=INK,
+                        family=MONO if code else SANS,
+                    )
+                )
+            bubble_y += bubble_h + 8
     parts.extend(
         [
             svg.text(
@@ -339,8 +414,10 @@ def detail_header(
     badges: list[tuple[str, bool]],
     *,
     broken: bool = False,
+    x: float = DETAIL_X,
+    w: float = DETAIL_W,
 ) -> None:
-    x, y, w, h = DETAIL_X, BODY_Y, DETAIL_W, 96
+    y, h = BODY_Y, 96
     parts = [
         svg.rect(x, y, w, h, fill=PANEL, stroke=LINE, r=6),
         svg.text(x + 14, y + 32, slug, size=17, fill=INK, weight=600),
@@ -353,19 +430,26 @@ def detail_header(
         if index == 2 and broken:
             parts.append(chip(svg, chip_x, y + 64, label))
         elif is_problem:
-            parts.append(chip(svg, chip_x, y + 64, label, fill="#fef3f2", colour=PROBLEM))
+            parts.append(chip(svg, chip_x, y + 64, label, fill=ERROR_BG, colour=PROBLEM))
         else:
             parts.append(chip(svg, chip_x, y + 64, label))
         chip_x += 12 + len(label) * 7.2 + 18
     svg.layer("detail-header", *parts)
 
 
-def action_row(svg: Svg, summary: str, summary_colour: str, *, wide: bool = False) -> None:
+def action_row(
+    svg: Svg,
+    summary: str,
+    summary_colour: str,
+    *,
+    x: float = DETAIL_X,
+    w: float = DETAIL_W,
+) -> None:
     y = BODY_Y + 104
     parts = [
         button(
             svg,
-            DETAIL_X,
+            x,
             y,
             118,
             "运行 validate",
@@ -374,14 +458,14 @@ def action_row(svg: Svg, summary: str, summary_colour: str, *, wide: bool = Fals
         ),
         button(
             svg,
-            DETAIL_X + 126,
+            x + 126,
             y,
             138,
             "运行 milestones",
             icon_name="milestones",
         ),
         svg.text(
-            DETAIL_X + (DETAIL_W if not wide else DETAIL_W) - 4,
+            x + w - 4,
             y + 19,
             summary,
             size=12,
@@ -392,13 +476,18 @@ def action_row(svg: Svg, summary: str, summary_colour: str, *, wide: bool = Fals
     svg.layer("action-row", *parts)
 
 
-def results_table(svg: Svg, rows: list[tuple[str, str, str]], *, height: int = 526) -> None:
-    x = DETAIL_X
+def results_table(
+    svg: Svg,
+    rows: list[tuple[str, str, str]],
+    *,
+    height: int = 526,
+    x: float = DETAIL_X,
+    w: float = DETAIL_W,
+) -> None:
     y = BODY_Y + 140
-    w = DETAIL_W
     parts = [
         svg.rect(x, y, w, height, fill=PANEL, stroke=LINE, r=6),
-        svg.rect(x + 1, y + 1, w - 2, 28, fill="#fafbfc", r=5),
+        svg.rect(x + 1, y + 1, w - 2, 28, fill=TABLE_HEADER, r=5),
         svg.line(x + 1, y + 29, x + w - 1, y + 29),
         svg.text(x + 14, y + 20, "来源", size=11, fill=MUTED, weight=600),
         svg.text(x + 90, y + 20, "代码", size=11, fill=MUTED, weight=600),
@@ -407,12 +496,12 @@ def results_table(svg: Svg, rows: list[tuple[str, str, str]], *, height: int = 5
     row_y = y + 30
     for source, code, message in rows:
         parts.append(svg.text(x + 14, row_y + 18, source, size=12))
-        colour = T.severity_color(code)
+        colour = T.severity_color(code, MODE)
         parts.append(
             svg.text(x + 90, row_y + 18, code, size=11, fill=colour, family=MONO, weight=600)
         )
         parts.append(svg.text(x + 190, row_y + 18, clip(message, 62), size=12, fill=INK))
-        parts.append(svg.line(x + 1, row_y + 28, x + w - 1, row_y + 28, stroke="#eef0f3"))
+        parts.append(svg.line(x + 1, row_y + 28, x + w - 1, row_y + 28, stroke=GRIDLINE))
         row_y += 28
     svg.layer("results-table", *parts)
 
@@ -422,12 +511,14 @@ def checkpoint_panel(
     items: list[tuple[str, str, str, str]],
     *,
     banner: str,
+    x: float = DETAIL_X,
+    w: float = DETAIL_W,
+    y: float = BODY_Y,
 ) -> None:
     """The proposed "待人工决定" surface, fed by readiness.human_review.checkpoints."""
 
-    x, y, w = DETAIL_X, BODY_Y, DETAIL_W
     parts = [
-        svg.rect(x, y, w, 72, fill="#fffaeb", stroke="#fedf89", r=6),
+        svg.rect(x, y, w, 72, fill=PENDING_BG, stroke=PENDING_BORDER, r=6),
         svg.text(x + 14, y + 28, banner, size=13, fill=ADVISORY, weight=600),
         svg.text(
             x + 14,
@@ -448,7 +539,7 @@ def checkpoint_panel(
                     x + 14,
                     card_y + 14,
                     "approve" if kind == "approve" else "feedback",
-                    fill=CHIP if kind == "approve" else "#fffaeb",
+                    fill=CHIP if kind == "approve" else PENDING_BG,
                     colour=INK if kind == "approve" else ADVISORY,
                 ),
                 button(svg, x + w - 104, card_y + 12, 90, "打开台账", h=26),
@@ -497,7 +588,7 @@ def screen_empty() -> str:
             center - 22,
             BODY_Y + 268,
             size=44,
-            colour="#c9c9d1",
+            colour=PLACEHOLDER_ICON,
         ),
         svg.text(
             center,
@@ -633,6 +724,115 @@ def screen_checkpoints() -> str:
     return svg.render()
 
 
+def screen_chat_bubbles() -> str:
+    """The conversation column with every message role on screen at once."""
+
+    svg = Svg(W, H)
+    toolbar(svg, "3 个项目 · 1 个无法读取")
+    project_list(
+        svg,
+        [
+            ("broken-project", "无法解析 ccfa.yaml"),
+            ("example-paper", None),
+            ("shadowmem-extension", None),
+        ],
+        1,
+    )
+    detail_header(
+        svg,
+        "example-paper",
+        "模式 conference · 更新于 2026-10-05",
+        [
+            ("阶段 internal-review", False),
+            ("门禁 review_cleared", False),
+            ("截止 2027-02-15", False),
+        ],
+    )
+    action_row(svg, "1 条结果 · 全部通过", OK)
+    results_table(svg, [("validate", "OK", "无问题")])
+    chat_panel(
+        svg,
+        configured=True,
+        messages=[
+            ("user", "RAG 攻击面那节的引用是不是撑不住？"),
+            (
+                "assistant",
+                "4.2 节的 [12] 只证明了检索污染可行：\n"
+                "• 支持：污染语料能被检索到\n"
+                "• 不支持：端到端攻击成功\n"
+                ">assert claim.evidence == \"end-to-end\"",
+            ),
+            ("tool", "ok"),
+            ("tool-denied", "denied"),
+            ("error", "引擎超时：provider 60s 内没有返回"),
+        ],
+    )
+    status_bar(svg, "工作流：默认（仓库根）", "凭据可用")
+    return svg.render()
+
+
+def screen_narrow() -> str:
+    """The collapsed layout: below the breakpoint the conversation column is
+    gone and the detail pane takes over its width."""
+
+    width, height = 900, 700
+    svg = Svg(width, height)
+    toolbar(svg, "3 个项目 · 1 个无法读取")
+    project_list(
+        svg,
+        [
+            ("broken-project", "无法解析 ccfa.yaml"),
+            ("example-paper", None),
+            ("shadowmem-extension", None),
+        ],
+        1,
+    )
+    detail_x = MARGIN + SIDEBAR_W + MARGIN
+    detail_w = width - detail_x - MARGIN
+    detail_header(
+        svg,
+        "example-paper",
+        "模式 conference · 更新于 2026-10-05",
+        [
+            ("阶段 internal-review", False),
+            ("门禁 review_cleared", False),
+            ("截止 2027-02-15", False),
+        ],
+        x=detail_x,
+        w=detail_w,
+    )
+    action_row(svg, "3 项待人工", PROBLEM, x=detail_x, w=detail_w)
+    checkpoint_panel(
+        svg,
+        [
+            (
+                "approve",
+                "主证明逐行成立吗？每一步推理与所依赖的假设是否都站得住？",
+                "data/proof-audit.yaml",
+                "写 reviewer、结论与复核证据路径",
+            ),
+            (
+                "approve",
+                "关键引用是否真的支撑它所在的那句论断，而不只是存在？",
+                "data/citation-support.yaml",
+                "逐条写 supports 与判定依据",
+            ),
+            (
+                "feedback",
+                "第二位人类编码者完成盲法编码了吗？一致率达到预设门槛了吗？",
+                "data/human-coding-report.json",
+                "写 coders、agreement、kappa 与分歧裁决",
+            ),
+        ],
+        banner="待人工复核：3 项 · 对话栏已收起",
+        x=detail_x,
+        w=detail_w,
+        y=BODY_Y + 140,
+    )
+    status_bar(svg, "工作流：默认（仓库根）", "凭据可用")
+    return svg.render()
+
+
 def dialog_settings() -> str:
     w, h = 560, 533
     svg = Svg(w, h, background=CANVAS)
@@ -705,13 +905,16 @@ SCREENS = {
     "03-workbench-blocked.svg": screen_blocked,
     "04-human-checkpoints.svg": screen_checkpoints,
     "05-settings-dialog.svg": dialog_settings,
+    "06-chat-bubbles.svg": screen_chat_bubbles,
+    "07-narrow-collapsed.svg": screen_narrow,
 }
 
 
 def main() -> int:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = OUT_DIR if MODE == "light" else OUT_DIR / MODE
+    out_dir.mkdir(parents=True, exist_ok=True)
     for name, builder in SCREENS.items():
-        target = OUT_DIR / name
+        target = out_dir / name
         target.write_text(builder(), encoding="utf-8", newline="\n")
         print(f"wrote {target.relative_to(REPO_ROOT).as_posix()}")
     return 0

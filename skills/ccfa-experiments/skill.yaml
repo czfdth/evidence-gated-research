@@ -1,0 +1,4 @@
+id: ccfa-experiments
+version: 0.1.0
+entrypoint: ccfa.experiment_optimizer
+dependencies: [ccfa-core]

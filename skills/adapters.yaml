@@ -1,0 +1,82 @@
+version: 1
+adapters:
+  - id: zotero-local
+    skill: pyzotero
+    service: Zotero Desktop local API
+    auth_mode: local
+    required_env: []
+    optional_env: []
+    healthcheck: {kind: http, url: "http://127.0.0.1:23119/connector/ping", accept_status: [200, 404]}
+    capabilities: [library-read, citation-export]
+  - id: zotero-web
+    skill: pyzotero
+    service: Zotero Web API v3
+    auth_mode: env
+    required_env: [ZOTERO_API_KEY, ZOTERO_LIBRARY_ID]
+    optional_env: [ZOTERO_LIBRARY_TYPE]
+    healthcheck: null
+    capabilities: [library-read, library-write, attachment-upload]
+  - id: cnki
+    skill: cnki-search
+    service: CNKI institutional browser session
+    auth_mode: browser
+    required_env: []
+    optional_env: []
+    healthcheck: null
+    capabilities: [search, download, citation-export]
+  - id: exa
+    skill: exa-search
+    service: Exa scientific web search
+    auth_mode: env
+    required_env: [EXA_API_KEY]
+    optional_env: []
+    healthcheck: {kind: http, url: "https://api.exa.ai/openapi.json"}
+    capabilities: [web-search, page-extract]
+  - id: parallel
+    skill: parallel-web
+    service: Parallel web intelligence
+    auth_mode: env
+    required_env: [PARALLEL_API_KEY]
+    optional_env: []
+    healthcheck: null
+    capabilities: [web-search, deep-research, enrichment]
+  - id: firecrawl
+    skill: firecrawl-research-papers
+    service: Firecrawl Research
+    auth_mode: env
+    required_env: [FIRECRAWL_API_KEY]
+    optional_env: []
+    healthcheck: null
+    capabilities: [paper-search, paper-read, web-search]
+  - id: paperclip
+    skill: paperclip
+    service: GXL Paperclip
+    auth_mode: cli-login
+    required_env: [PAPERCLIP_API_KEY]
+    optional_env: []
+    healthcheck: null
+    capabilities: [biomedical-search, full-text-search, claim-verification]
+  - id: pubmed
+    skill: pubmed-database
+    service: NCBI PubMed E-utilities
+    auth_mode: none
+    required_env: []
+    optional_env: [NCBI_API_KEY]
+    healthcheck: {kind: http, url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi"}
+    capabilities: [biomedical-search, abstract-fetch]
+  - id: openalex
+    skill: literature-search-openalex
+    service: OpenAlex
+    auth_mode: none
+    required_env: []
+    optional_env: [OPENALEX_API_KEY]
+    healthcheck: {kind: http, url: "https://api.openalex.org/works?per-page=1"}
+    capabilities: [scholarly-search, citation-graph]
+  - id: huggingface
+    skill: hugging-science
+    service: Hugging Face Hub
+    auth_mode: none
+    required_env: []
+    optional_env: [HF_TOKEN]
+    healthcheck: {kind: http, url: "https://huggingface.co/api/models?limit=1"}
+    capabilities: [model-discovery, dataset-discovery, space-discovery]

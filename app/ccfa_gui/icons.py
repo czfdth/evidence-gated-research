@@ -38,10 +38,10 @@ def icon(name: str, *, colour: str = theme.INK, size: int = 16) -> QIcon:
     return QIcon(result) if not result.isNull() else QIcon()
 
 
-def app_mark(size: int = 22) -> QPixmap:
+def app_mark(size: int = 22, *, colour: str = theme.ACCENT) -> QPixmap:
     scale = 2
     renderer = QSvgRenderer(
-        icon_paths.mark_svg(theme.ACCENT, "#ffffff", size=size * scale).encode("utf-8")
+        icon_paths.mark_svg(colour, "#ffffff", size=size * scale).encode("utf-8")
     )
     image = QPixmap(QSize(size * scale, size * scale))
     image.fill(Qt.GlobalColor.transparent)

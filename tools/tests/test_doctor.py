@@ -622,5 +622,63 @@ class DoctorTests(unittest.TestCase):
         )
 
 
+    def test_check_imports_names_the_module_this_interpreter_cannot_import(self):
+        missing, present = doctor_module.check_imports(
+            (
+                doctor_module.ImportCheck("yaml", "所有工具", "演示"),
+                doctor_module.ImportCheck(
+                    "ccfa_no_such_module_xyz",
+                    "演示",
+                    "演示",
+                ),
+            ),
+            importer=__import__,
+        )
+
+        self.assertEqual(present, ["yaml"])
+        self.assertEqual(
+            [item["module"] for item in missing],
+            ["ccfa_no_such_module_xyz"],
+        )
+        self.assertIn("ModuleNotFoundError", missing[0]["error"])
+
+    def test_imports_only_is_green_in_a_fully_provisioned_venv(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = main(["doctor", "--imports-only"])
+
+        payload = json.loads(out.getvalue())
+        self.assertEqual(code, 0, payload)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["missing"], [])
+        self.assertIn("yaml", payload["present"])
+        self.assertIn("python", payload)
+
+    def test_imports_only_fails_closed_and_lists_what_is_missing(self):
+        missing = [
+            {
+                "module": "z3",
+                "capability": "formal-check",
+                "message": "Z3 SMT 引擎",
+                "error": "ModuleNotFoundError: No module named 'z3'",
+            }
+        ]
+        out = io.StringIO()
+        with mock.patch.object(
+            doctor_module,
+            "check_imports",
+            return_value=(missing, ["yaml"]),
+        ):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                code = main(["doctor", "--imports-only"])
+
+        payload = json.loads(out.getvalue())
+        self.assertEqual(code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["missing"], missing)
+
+
 if __name__ == "__main__":
     unittest.main()

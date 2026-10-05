@@ -10,13 +10,14 @@ import argparse
 import math
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import yaml
 
 from ccfa.bib import load_records
 from ccfa.cli import Problem, emit, tool_error
-from ccfa.ledger import is_nonempty_str, missing_fields, problem
+from ccfa.ledger import is_iso_date, is_nonempty_str, missing_fields, problem
 
 CLAIM_REGISTRY = Path("data/claim-registry.yaml")
 ASSUMPTIONS_LIMITATIONS = Path("data/assumptions-limitations.yaml")
@@ -25,6 +26,7 @@ ARTIFACT_PROVENANCE = Path("data/artifact-provenance.yaml")
 EXPLORATION_GRAPH = Path("data/exploration-graph.yaml")
 COST_LEDGER = Path("data/cost-ledger.yaml")
 RISK_REGISTER = Path("data/risk-register.yaml")
+HELD_OUT_PLAN = Path("data/held-out-plan.yaml")
 
 CLAIM_FIELDS = (
     "id",
@@ -39,6 +41,14 @@ CLAIM_FIELDS = (
     "citations",
 )
 CLAIM_TYPES = {"theoretical", "empirical", "descriptive"}
+# What the claim asserts, not what it is about: "effect" claims a difference,
+# "null" claims the absence of one, "descriptive" only characterises (counts,
+# taxonomy). A supported effect/null claim is the one a reader can over-read,
+# so those have to say which they are; a count does not.
+CLAIM_POLARITIES = {"effect", "null", "descriptive"}
+# Purely descriptive claims are exempt: "43 of the works do X" asserts no
+# direction, so demanding one would be a schema tax rather than a check.
+POLARITY_REQUIRED_TYPES = {"theoretical", "empirical"}
 CLAIM_STATUSES = {
     "pending-human-review",
     "supported",
@@ -185,6 +195,265 @@ def _run_ids(paper_root: Path) -> set[str]:
     return ids
 
 
+# Runs that rule out the obvious confound behind an effect claim.
+CONTROL_ROLES = {"negative-control", "ablation"}
+KNOWN_RUN_ROLES = CONTROL_ROLES | {"treatment", "baseline"}
+# A held-out evaluation is only held out if it was frozen before anyone looked
+# at it and the number of looks is bounded, so both facts are part of the
+# record rather than of the author's memory.
+HELD_OUT_ROLES = {"held-out", "development"}
+_MIN_NO_HELD_OUT_REASON = 40
+
+
+def _run_roles(paper_root: Path) -> dict[str, str]:
+    """Map run id -> declared role, ignoring records without a valid one.
+
+    An unreadable or role-less record simply has no role: the claim rule that
+    needs a control must fail closed, not treat a missing role as a control.
+    """
+
+    log_dir = paper_root / "experiments" / "log"
+    if not log_dir.is_dir():
+        return {}
+    roles: dict[str, str] = {}
+    for path in log_dir.glob("*.json"):
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        run_id = payload.get("run_id")
+        role = payload.get("role")
+        if (
+            is_nonempty_str(run_id)
+            and isinstance(role, str)
+            and role in KNOWN_RUN_ROLES
+        ):
+            roles[run_id.strip()] = role
+    return roles
+
+
+def _held_out_plan(
+    paper_root: Path,
+    payload: dict | None,
+    run_ids: set[str],
+) -> tuple[list[Problem], str | None, set[str]]:
+    """Validate ``data/held-out-plan.yaml``.
+
+    Returns the problems, the "no held-out evaluation exists" reason when the
+    paper documents one, and the set of run ids that count as held-out
+    evaluations (a recorded access to a frozen, budgeted split).
+    """
+
+    if payload is None:
+        return [], None, set()
+    path = paper_root / HELD_OUT_PLAN
+    problems: list[Problem] = []
+    reason = payload.get("no_held_out_reason")
+    documented: str | None = None
+    if reason is not None:
+        if (
+            not isinstance(reason, str)
+            or len(reason.strip()) < _MIN_NO_HELD_OUT_REASON
+            or _placeholder(reason)
+        ):
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"no_held_out_reason 必须是至少 {_MIN_NO_HELD_OUT_REASON} 字的"
+                    "具体说明，且不能是 placeholder",
+                )
+            )
+        else:
+            documented = reason.strip()
+
+    splits = payload.get("splits", [])
+    if not isinstance(splits, list):
+        problems.append(problem("held-out-invalid", path, None, "splits 必须是数组"))
+        return problems, documented, set()
+    seen_ids: set[str] = set()
+    touched: set[str] = set()
+    for index, split in enumerate(splits):
+        if not isinstance(split, dict):
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"splits[{index}] 必须是映射",
+                )
+            )
+            continue
+        split_id = split.get("id")
+        if not is_nonempty_str(split_id):
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"splits[{index}].id 必须是非空字符串",
+                )
+            )
+            continue
+        split_id = split_id.strip()
+        if split_id in seen_ids:
+            problems.append(
+                problem("held-out-invalid", path, None, f"split id 重复: {split_id}")
+            )
+        seen_ids.add(split_id)
+
+        role = split.get("role")
+        if role not in HELD_OUT_ROLES:
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"{split_id}: role 非法（应为 "
+                    f"{' / '.join(sorted(HELD_OUT_ROLES))}）",
+                )
+            )
+        artifact = split.get("artifact")
+        if not is_nonempty_str(artifact):
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"{split_id}: artifact 必须是非空字符串",
+                )
+            )
+        elif "://" not in artifact and not (paper_root / artifact.strip()).exists():
+            problems.append(
+                problem(
+                    "held-out-artifact-missing",
+                    path,
+                    None,
+                    f"{split_id}: artifact 不存在: {artifact}",
+                )
+            )
+
+        frozen_at = split.get("frozen_at")
+        budget = split.get("access_budget")
+        if role == "held-out":
+            if not is_iso_date(frozen_at):
+                problems.append(
+                    problem(
+                        "held-out-invalid",
+                        path,
+                        None,
+                        f"{split_id}: held-out split 必须写 frozen_at（YYYY-MM-DD）",
+                    )
+                )
+            if isinstance(budget, bool) or not isinstance(budget, int) or budget <= 0:
+                problems.append(
+                    problem(
+                        "held-out-invalid",
+                        path,
+                        None,
+                        f"{split_id}: held-out split 的 access_budget 必须是正整数",
+                    )
+                )
+
+        accesses = split.get("accesses", [])
+        if not isinstance(accesses, list):
+            problems.append(
+                problem(
+                    "held-out-invalid",
+                    path,
+                    None,
+                    f"{split_id}: accesses 必须是数组",
+                )
+            )
+            continue
+        for access_index, access in enumerate(accesses):
+            where = f"{split_id}.accesses[{access_index}]"
+            if not isinstance(access, dict):
+                problems.append(
+                    problem("held-out-invalid", path, None, f"{where} 必须是映射")
+                )
+                continue
+            run_id = access.get("run_id")
+            at = access.get("at")
+            why = access.get("reason")
+            valid_run = is_nonempty_str(run_id)
+            if not valid_run:
+                problems.append(
+                    problem(
+                        "held-out-invalid",
+                        path,
+                        None,
+                        f"{where}.run_id 必须是非空字符串",
+                    )
+                )
+            elif run_id.strip() not in run_ids:
+                problems.append(
+                    problem(
+                        "held-out-unknown-run",
+                        path,
+                        None,
+                        f"{where}: run_id {run_id!r} 不在 experiments/log 里，"
+                        "访问记录必须能追到一次真实运行",
+                    )
+                )
+            if not is_iso_date(at):
+                problems.append(
+                    problem(
+                        "held-out-invalid",
+                        path,
+                        None,
+                        f"{where}.at 必须是 YYYY-MM-DD",
+                    )
+                )
+            if not is_nonempty_str(why) or _placeholder(why):
+                problems.append(
+                    problem(
+                        "held-out-invalid",
+                        path,
+                        None,
+                        f"{where}.reason 必填且不能是 placeholder",
+                    )
+                )
+            if (
+                role == "held-out"
+                and is_iso_date(at)
+                and is_iso_date(frozen_at)
+                and date.fromisoformat(at) < date.fromisoformat(frozen_at)
+            ):
+                problems.append(
+                    problem(
+                        "held-out-access-before-freeze",
+                        path,
+                        None,
+                        f"{where}: 访问发生在冻结日 {frozen_at} 之前，"
+                        "那次评估不能再算 held-out",
+                    )
+                )
+            if role == "held-out" and valid_run:
+                touched.add(run_id.strip())
+
+        if (
+            role == "held-out"
+            and isinstance(budget, int)
+            and not isinstance(budget, bool)
+            and budget > 0
+            and len(accesses) > budget
+        ):
+            problems.append(
+                problem(
+                    "held-out-budget-exceeded",
+                    path,
+                    None,
+                    f"{split_id}: 已记录 {len(accesses)} 次访问，"
+                    f"超过 access_budget={budget}",
+                )
+            )
+    return problems, documented, touched
+
+
 def _claim_registry(
     paper_root: Path,
     payload: dict,
@@ -195,6 +464,9 @@ def _claim_registry(
     figure_ids: set[str],
     citation_ids: set[str],
     run_ids: set[str],
+    run_roles: dict[str, str],
+    held_out_runs: set[str],
+    no_held_out_reason: str | None,
 ) -> tuple[list[Problem], set[str]]:
     path = paper_root / CLAIM_REGISTRY
     problems: list[Problem] = []
@@ -246,6 +518,33 @@ def _claim_registry(
         if status not in CLAIM_STATUSES:
             problems.append(
                 problem("claim-registry-invalid", path, None, f"{claim_id}: status 非法")
+            )
+        polarity = claim.get("polarity")
+        if polarity is not None and polarity not in CLAIM_POLARITIES:
+            problems.append(
+                problem(
+                    "claim-registry-invalid",
+                    path,
+                    None,
+                    f"{claim_id}: polarity 非法（应为 "
+                    f"{'、'.join(sorted(CLAIM_POLARITIES))} 之一）",
+                )
+            )
+            polarity = None
+        if (
+            status == "supported"
+            and claim_type in POLARITY_REQUIRED_TYPES
+            and polarity is None
+        ):
+            problems.append(
+                problem(
+                    "claim-registry-polarity-missing",
+                    path,
+                    None,
+                    f"{claim_id}: supported 的 {claim_type} claim 必须声明 polarity"
+                    "（effect/null/descriptive）——不写清方向，就没有人能判断"
+                    "证据是否真的支撑它",
+                )
             )
         for field in ("assumptions", "limitations", "experiments", "figures", "citations"):
             if not _string_list(claim.get(field)):
@@ -330,6 +629,70 @@ def _claim_registry(
                     path,
                     None,
                     f"{claim_id}: supported empirical claim 必须绑定 experiment",
+                )
+            )
+        if (
+            status == "supported"
+            and polarity == "null"
+            and not (
+                isinstance(claim.get("experiments"), list)
+                and claim.get("experiments")
+            )
+        ):
+            problems.append(
+                problem(
+                    "claim-registry-null-experiment-missing",
+                    path,
+                    None,
+                    f"{claim_id}: polarity=null 的 supported claim 必须绑定 experiment；"
+                    "「没有差异」只能由真的对照实验支撑，citation/figure 不算",
+                )
+            )
+        referenced = (
+            claim.get("experiments")
+            if isinstance(claim.get("experiments"), list)
+            else []
+        )
+        if (
+            status == "supported"
+            and claim_type == "empirical"
+            and polarity == "effect"
+            and not any(
+                run_roles.get(run) in CONTROL_ROLES
+                for run in referenced
+                if isinstance(run, str)
+            )
+        ):
+            problems.append(
+                problem(
+                    "claim-registry-control-run-missing",
+                    path,
+                    None,
+                    f"{claim_id}: supported 的 effect 实证 claim 必须引用至少一个"
+                    " role=negative-control 或 ablation 的运行；只有 treatment"
+                    " 结果时，无法排除混淆因素",
+                )
+            )
+        if (
+            status == "supported"
+            and claim_type == "empirical"
+            and polarity == "effect"
+            and no_held_out_reason is None
+            and not any(
+                isinstance(run, str) and run in held_out_runs
+                for run in referenced
+            )
+        ):
+            problems.append(
+                problem(
+                    "claim-registry-held-out-missing",
+                    path,
+                    None,
+                    f"{claim_id}: supported 的 effect 实证 claim 必须引用一次"
+                    " held-out 评估（data/held-out-plan.yaml 里 role=held-out、"
+                    "冻结在前且计入 access_budget 的运行）；这篇论文确实没有 "
+                    "held-out 划分时，就在同一个文件里写 no_held_out_reason"
+                    f"（至少 {_MIN_NO_HELD_OUT_REASON} 字）说明原因",
                 )
             )
     return problems, ids
@@ -898,6 +1261,18 @@ def check(
     figure_ids = _figure_ids(paper_root)
     citation_ids = _citation_ids(paper_root)
     run_ids = _run_ids(paper_root)
+    run_roles = _run_roles(paper_root)
+    held_out_payload, held_out_errors = _load(
+        paper_root / HELD_OUT_PLAN,
+        "held-out-invalid",
+    )
+    problems.extend(held_out_errors)
+    held_out_problems, no_held_out_reason, held_out_runs = _held_out_plan(
+        paper_root,
+        held_out_payload,
+        run_ids,
+    )
+    problems.extend(held_out_problems)
     if claim_payload is not None:
         claim_problems, claim_ids = _claim_registry(
             paper_root,
@@ -908,6 +1283,9 @@ def check(
             figure_ids=figure_ids,
             citation_ids=citation_ids,
             run_ids=run_ids,
+            run_roles=run_roles,
+            held_out_runs=held_out_runs,
+            no_held_out_reason=no_held_out_reason,
         )
         problems.extend(claim_problems)
 

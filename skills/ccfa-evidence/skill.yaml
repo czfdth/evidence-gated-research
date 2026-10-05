@@ -1,0 +1,4 @@
+id: ccfa-evidence
+version: 0.1.0
+entrypoint: ccfa.readiness
+dependencies: [ccfa-core]

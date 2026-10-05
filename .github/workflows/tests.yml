@@ -121,14 +121,20 @@ jobs:
             tools/ccfa/ara_extract.py `
             tools/ccfa/artifact_badge.py `
             tools/ccfa/artifact_store.py `
+            tools/ccfa/autoresearch.py `
             tools/ccfa/change_log.py `
+            tools/ccfa/claim_extract.py `
             tools/ccfa/cross_review.py `
             tools/ccfa/citation_calibration.py `
             tools/ccfa/dashboard.py `
             tools/ccfa/doctor.py `
+            tools/ccfa/e2e_check.py `
             tools/ccfa/experiment_loop.py `
+            tools/ccfa/experiment_optimizer.py `
+            tools/ccfa/external_adapters.py `
             tools/ccfa/formal_check.py `
             tools/ccfa/governance_map.py `
+            tools/ccfa/long_task.py `
             tools/ccfa/meta_optimize.py `
             tools/ccfa/post_submission.py `
             tools/ccfa/proof_orchestrator.py `
@@ -146,11 +152,14 @@ jobs:
             tools/ccfa/passport_ledger.py `
             tools/ccfa/run_ledger.py `
             tools/ccfa/session_replay.py `
+            tools/ccfa/skill_registry.py `
             tools/ccfa/talk_pipeline.py `
             tools/ccfa/test_impact.py `
             tools/ccfa/venue_fixtures.py `
             tools/ccfa/verifiers.py `
-            tools/ccfa/worktree_audit.py
+            tools/ccfa/worktree_audit.py `
+            tools/ccfa/dispatch.py `
+            tools/ccfa/__main__.py
 
       - name: Run impacted tool tests
         shell: pwsh
@@ -221,3 +230,32 @@ jobs:
           } else {
             scripts/test-impact.ps1 run --suite app --full
           }
+
+  portable:
+    name: portable entry point (linux)
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PyYAML==6.0.3
+
+      - name: Dispatcher parity and portable entry point
+        run: |
+          export PYTHONPATH="$PWD/tools"
+          python -m ccfa list
+          python -m unittest tools.tests.test_dispatch -v
+
+      - name: POSIX launcher runs a tool without PowerShell
+        run: |
+          sh scripts/ccfa stages --help

@@ -160,6 +160,64 @@ _LOCAL_SERVICES = (
 )
 
 
+class ImportCheck(NamedTuple):
+    module: str
+    capability: str
+    why: str
+
+
+# Mirror tools/requirements.txt. These are the imports the machine-checkable
+# gates need *in the interpreter that runs them*: the same workflow behaves
+# differently under a venv that has them and a bare interpreter that does not,
+# and a missing module shows up as a failed gate rather than as a broken
+# environment. Keeping the list here is what lets the workbench tell the two
+# apart before it trusts a report.
+IMPORT_CHECKS: tuple[ImportCheck, ...] = (
+    ImportCheck("yaml", "所有工具", "PyYAML：所有 YAML 台账的读写"),
+    ImportCheck("pymupdf", "pdftext", "PDF 正文抽取（claim-candidates 等）"),
+    ImportCheck("z3", "formal-check", "Z3 SMT 引擎（formal-check 默认引擎）"),
+    ImportCheck("cvc5", "formal-check", "cvc5 第二独立 SMT 引擎"),
+    ImportCheck("bibtexparser", "bib", "BibTeX 解析（reference-audit 等）"),
+    ImportCheck("pylatexenc", "bib", "LaTeX 解码（bibtexparser 依赖）"),
+    ImportCheck("cryptography", "skillpack", "AES-256-GCM 加密技能包"),
+)
+
+
+def check_imports(
+    checks: tuple[ImportCheck, ...] = IMPORT_CHECKS,
+    *,
+    importer: Callable[[str], object] | None = None,
+) -> tuple[list[dict], list[str]]:
+    """Return (missing, present) for the modules this interpreter must import.
+
+    ``missing`` is a JSON-ready record per module, because the caller is a
+    program (the workbench probe) far more often than it is a human.
+    """
+
+    probe = importer
+    if probe is None:
+        import importlib
+
+        probe = importlib.import_module
+    missing: list[dict] = []
+    present: list[str] = []
+    for check in checks:
+        try:
+            probe(check.module)
+        except Exception as exc:  # a probe must never take down the preflight
+            missing.append(
+                {
+                    "module": check.module,
+                    "capability": check.capability,
+                    "message": check.why,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+        else:
+            present.append(check.module)
+    return missing, present
+
+
 def discover_services(config_path: Path) -> tuple[Service, ...]:
     """Return read-only probes derived from Codex config plus local services."""
     services = list(_LOCAL_SERVICES)
@@ -494,7 +552,35 @@ def main(
         default=str(Path.home() / ".codex" / "config.toml"),
         help="Codex config.toml 路径，用于发现 provider 和配置模型",
     )
+    parser.add_argument(
+        "--imports-only",
+        action="store_true",
+        help=(
+            "只检查当前解释器能否导入各 gate 需要的 Python 依赖，"
+            "输出 JSON（给桌面工作台用）"
+        ),
+    )
     args = parser.parse_args(argv[1:])
+    if args.imports_only:
+        missing, present = check_imports()
+        payload = {
+            "python": sys.executable,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "ok": not missing,
+            "missing": missing,
+            "present": present,
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        if missing:
+            names = ", ".join(item["module"] for item in missing)
+            print(
+                f"依赖自检失败：{names} 无法导入（{sys.executable}）；"
+                "相关 gate 会失败而不是通过",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"依赖自检通过：{len(present)} 个模块（{sys.executable}）", file=sys.stderr)
+        return 0
     repo_root = (
         Path(args.repo_root)
         if args.repo_root

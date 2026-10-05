@@ -15,12 +15,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QThread, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QTextBrowser
 
 from ccfa_core.engines.base import EngineError, EngineReply
 from ccfa_core.secrets import SecretStoreUnavailable
 from ccfa_core.settings import ProviderSettings, Settings, save_settings
-from ccfa_gui.chat_panel import ChatPanel
+from ccfa_gui.chat_panel import ChatPanel, markdown_style
 from ccfa_gui.window import MainWindow, image_non_background_ratio
 
 from . import write_project
@@ -217,6 +217,98 @@ class ChatPanelTests(unittest.TestCase):
             )
             for row in range(panel.message_list.count())
         ]
+
+    def test_messages_render_as_role_bubbles(self):
+        panel = self._panel()
+
+        panel._append_message("user", "看一下主证明")
+        panel._append_message("assistant", "第 3 步的假设没有被用到")
+        panel._append_message("tool", "read_file [read] -> ok")
+        panel._append_message("error", "引擎超时")
+        APP.processEvents()
+
+        roles = []
+        for row in range(panel.message_list.count()):
+            item = panel.message_list.item(row)
+            widget = panel.message_list.itemWidget(item)
+            with self.subTest(row=row):
+                self.assertIsNotNone(widget, "每条消息都应有气泡部件")
+                roles.append(widget.property("role"))
+                # The plain text stays on the item for existing consumers.
+                self.assertTrue(item.text())
+                self.assertGreater(item.sizeHint().height(), 0)
+
+        self.assertEqual(roles, ["user", "assistant", "tool", "error"])
+
+    def test_tool_bubble_splits_name_risk_and_outcome(self):
+        panel = self._panel()
+
+        panel._append_message("tool", "write_file [write] -> denied")
+        APP.processEvents()
+
+        item = panel.message_list.item(0)
+        widget = panel.message_list.itemWidget(item)
+        labels = {
+            child.objectName(): child.text()
+            for child in widget.findChildren(QLabel)
+        }
+
+        self.assertEqual(labels.get("chatRole"), "write_file")
+        self.assertEqual(labels.get("chatChip"), "write")
+        body = widget.findChild(QTextBrowser, "chatBody")
+        self.assertEqual(body.toPlainText().strip(), "denied")
+        chip = next(
+            child
+            for child in widget.findChildren(QLabel)
+            if child.objectName() == "chatChip"
+        )
+        self.assertEqual(chip.property("state"), "problem")
+
+    def test_markdown_bodies_are_parsed_not_shown_raw(self):
+        panel = self._panel()
+
+        panel._append_message(
+            "assistant",
+            "结论：\n\n- 支持：污染可检索\n- 不支持：端到端\n\n"
+            "```python\nassert claim.evidence == \"end-to-end\"\n```",
+        )
+        APP.processEvents()
+
+        widget = panel.message_list.itemWidget(panel.message_list.item(0))
+        body = widget.findChild(QTextBrowser, "chatBody")
+        plain = body.toPlainText()
+
+        self.assertNotIn("```", plain)
+        self.assertNotIn("- 支持", plain)
+        self.assertIn("支持：污染可检索", plain)
+        self.assertIn("assert claim.evidence", plain)
+        # The list and the code block are separate blocks, not one line.
+        self.assertGreater(body.document().blockCount(), 3)
+
+    def test_code_style_follows_the_theme_mode(self):
+        panel = self._panel()
+
+        panel._append_message("assistant", "回答：\n\n```python\nx = 1\n```")
+        APP.processEvents()
+        widget = panel.message_list.itemWidget(panel.message_list.item(0))
+        body = widget.findChild(QTextBrowser, "chatBody")
+        self.assertIn(
+            markdown_style("light"),
+            body.document().defaultStyleSheet(),
+        )
+
+        panel.set_theme_mode("dark")
+
+        self.assertIn(
+            markdown_style("dark"),
+            body.document().defaultStyleSheet(),
+        )
+        self.assertNotEqual(
+            markdown_style("light"),
+            markdown_style("dark"),
+        )
+        # Re-rendering keeps the message text intact.
+        self.assertIn("x = 1", body.toPlainText())
 
     def _send(self, panel, text):
         panel.input_edit.setPlainText(text)
@@ -662,6 +754,7 @@ class ChatPanelTests(unittest.TestCase):
             repo_root=self.root,
             secret_store=self.secrets,
             settings_path=self.settings_path,
+            collaboration_probes=False,
         )
         window.resize(1100, 760)
         window.show()

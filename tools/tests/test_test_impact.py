@@ -258,6 +258,20 @@ class SelectTestsTests(unittest.TestCase):
         self.assertEqual(selection.tests, ("tools.tests.test_github_workflows",))
         self.assertFalse(selection.full)
 
+    def test_dependency_locks_force_the_full_suite(self):
+        # CI installs the lock, so a change to either the direct list or the
+        # lock alters the environment for every test in the suite.
+        for suite, path in (
+            ("tools", "tools/requirements.txt"),
+            ("tools", "tools/requirements.lock"),
+            ("app", "app/requirements.txt"),
+            ("app", "app/requirements.lock"),
+        ):
+            with self.subTest(suite=suite, path=path):
+                selection = select_tests([path], suite=suite)
+
+                self.assertTrue(selection.full, path)
+
     def test_unknown_path_fails_closed_to_full_suite(self):
         selection = select_tests(["new-component/data.json"], suite="tools")
 

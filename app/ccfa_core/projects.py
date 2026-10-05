@@ -46,6 +46,25 @@ def parse_deadline(value: object) -> date | None:
         raise ValueError(f"deadline 不是合法日期: {value!r}") from exc
 
 
+def deadline_note(deadline: str | None, *, today: date | None = None) -> str:
+    """Return the short countdown a badge can hold: ``剩 9 天`` / ``已逾期 6 天``.
+
+    The header badge row is already tight at narrow widths, so the badge shows
+    the countdown and the caller keeps the absolute date in the tooltip.
+    """
+
+    parsed = parse_deadline(deadline)
+    if parsed is None:
+        return "无"
+    reference = today or date.today()
+    days = (parsed - reference).days
+    if days < 0:
+        return f"已逾期 {abs(days)} 天"
+    if days == 0:
+        return "今天截止"
+    return f"剩 {days} 天"
+
+
 def stages_for(mode: str, *, client: WorkflowClient | None = None) -> tuple[str, ...]:
     """Return the workflow's stage list for *mode*, cached per mode."""
 
@@ -98,6 +117,22 @@ class ProjectRef:
     error: str | None = None
 
 
+def _gate_criterion(mode: str, stage: str) -> str:
+    """The workflow's own criterion text for this stage's gate.
+
+    Decorative: a workflow that cannot answer must not stop the project from
+    loading, so a failure here yields an empty string (the readiness view
+    reports real connectivity problems).
+    """
+
+    try:
+        gate = gate_for(mode, stage)
+    except ValueError:
+        return ""
+    criterion = gate.get("criterion")
+    return criterion.strip() if isinstance(criterion, str) else ""
+
+
 @dataclass(frozen=True)
 class ProjectState:
     slug: str
@@ -107,6 +142,7 @@ class ProjectState:
     gate: str
     deadline: str | None
     updated_at: str
+    gate_criterion: str = ""
 
 
 def _yaml_path(path: Path) -> tuple[Path, Path]:
@@ -180,6 +216,7 @@ def load_project(path: Path) -> ProjectState:
         gate=gate,
         deadline=deadline,
         updated_at=updated_at,
+        gate_criterion=_gate_criterion(mode, current_stage),
     )
 
 

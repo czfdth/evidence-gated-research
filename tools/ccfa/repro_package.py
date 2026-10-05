@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import venv
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -302,6 +301,11 @@ def _tail(text: str, limit: int = _OUTPUT_TAIL_LIMIT) -> str:
 
 
 def _default_venv_factory(path: Path) -> Path:
+    # Imported here on purpose: the embeddable CPython distribution that
+    # scripts/bundle-workflow.ps1 ships has no ``venv`` module, and this tool is
+    # only one of many that share the workflow package.
+    import venv
+
     path = Path(path)
     try:
         venv.EnvBuilder(with_pip=True).create(str(path))

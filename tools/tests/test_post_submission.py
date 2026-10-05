@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from ccfa.post_submission import check
+from ccfa.post_submission import build_skeleton, check, init_ledger
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -181,6 +181,45 @@ class PostSubmissionTests(unittest.TestCase):
 
         self.assertIn(
             "post-submission-placeholder",
+            [problem.code for problem in problems],
+        )
+
+
+    def test_init_writes_a_checkable_skeleton_and_refuses_to_overwrite(self):
+        path = init_ledger(self.paper)
+
+        self.assertTrue(path.is_file())
+        problems, advisories = check(self.paper)
+        self.assertEqual(problems, [])
+        self.assertEqual(advisories, [])
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["inventory"]["run_ids"], ["RUN1"])
+        self.assertEqual(payload["inventory"]["claim_ids"], ["C1"])
+        self.assertEqual(payload["inventory"]["figure_ids"], ["F1"])
+        self.assertEqual(payload["resubmit"]["status"], "not-applicable")
+        with self.assertRaisesRegex(ValueError, "已存在"):
+            init_ledger(self.paper)
+
+    def test_skeleton_keeps_resubmit_open_for_journals(self):
+        (self.paper / "ccfa.yaml").write_text(
+            "version: '0.4.0'\n"
+            "target_venue:\n"
+            "  name: TOG\n"
+            "  mode: journal\n",
+            encoding="utf-8",
+        )
+
+        payload = build_skeleton(self.paper)
+
+        self.assertEqual(payload["resubmit"]["status"], "not-started")
+
+    def test_required_section_blocks_until_it_is_complete(self):
+        init_ledger(self.paper)
+
+        problems, _advisories = check(self.paper, require_sections=("rebuttal",))
+
+        self.assertIn(
+            "post-submission-section-incomplete",
             [problem.code for problem in problems],
         )
 

@@ -42,6 +42,20 @@ scripts/dashboard.ps1 --papers-root papers
 `doctor` 的 `found` 只表示命令可被发现；Docker daemon 会额外执行真实探测。
 准备使用所有可选能力时运行 `scripts/doctor.ps1 --strict`。
 
+Windows 以外不需要 PowerShell，同一个工具换个入口即可，三条路径进入同一份
+Python 代码：
+
+```text
+Windows:  scripts/<tool>.ps1
+POSIX:    sh scripts/ccfa <tool>
+任意平台: python -m ccfa <tool>      （pip 安装后可直接 ccfa <tool>）
+```
+
+命令名与 `scripts/*.ps1` 的文件名一致，`ccfa list` 列出全部；`scripts/ccfa`
+在 Git Bash 下也会自动把 `PYTHONPATH` 转成原生路径。只有 `build-workbench`、
+`bundle-workflow`、`publish-public` 三个纯 Windows 打包/发布脚本没有跨平台
+等价物，它们在 `ccfa.dispatch` 中显式声明。
+
 Codex 桌面版把 CLI 装在版本化目录（`%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\`），
 不会写进持久 PATH。工作流因此有两层兜底：`cross_review` 自己会解析最新版本，
 另外在 `<home>\.local\bin\codex.cmd` 放一个稳定 shim，让普通终端里的
@@ -115,6 +129,17 @@ git -C $paper status --short
 
 `readiness` 会执行当前 profile 对应的 gate。`evidence-present` 只表示文件齐全；`gate-verified` 才表示下游检查器真实通过。人工审计仍是 pending、cross-review provenance 不完整或 lockfile 漂移时，报告必须为 `ready=false`。
 
+每个 gate 现在带一个**结论词**，把"该跑没跑"和"跑了没过"分开：
+
+| 结论 | 含义 | 你该做什么 |
+| --- | --- | --- |
+| `pass` | 跑了，没问题 | 不用动 |
+| `fail` | 跑了，检查器拒绝了 | 改内容 |
+| `blocked` | 前置台账缺失，gate 根本没跑 | 先补输入 |
+| `error` | 检查器本身报错 | 修工具或环境 |
+
+过去这些一律显示 `problem`，所以"缺文件"和"内容不过"看起来一样。
+
 `human_review.checkpoints` 把每条待人工项展开成**可回答的问题**：
 
 - `question`：要人判断的到底是什么；
@@ -137,6 +162,32 @@ scripts/research-ledgers.ps1 --paper-root $paper
 以及 venue checklist、artifact provenance、探索图、成本账本和风险登记册。
 `artifact-provenance.yaml` 可选 `depends_on` 边：`advisory` 表示静态推断，
 `verified` 必须指向真实存在的证据文件；悬空引用和依赖环都会 fail closed。
+
+从 PDF 或仓库文本生成候选 claim：
+
+```powershell
+scripts/claim-extract.ps1 extract --paper-root $paper `
+    --source submission/final.pdf `
+    --source manuscript/sections `
+    --model qwen3:30b `
+    --out data/claim-candidates.yaml
+scripts/claim-extract.ps1 check --paper-root $paper `
+    --candidates data/claim-candidates.yaml
+```
+
+候选 claim 必须带 source hash、页码/行号、verbatim quote 和 `status=proposed`。
+`check` 会拒绝 source drift 和 quote 已不存在；工具不会自动写入
+`data/claim-registry.yaml`，promotion 仍由人完成。
+
+登记进 `data/claim-registry.yaml` 的 `supported` claim，若类型是 `empirical` 或
+`theoretical`，必须声明 `polarity`：`effect`（断言存在差异）、`null`（断言不存在
+差异）、`descriptive`（只做计数或分类）。纯 `descriptive` claim 不强制填。
+`polarity: null` 且已 supported 的 claim 还必须绑定至少一个 `experiment`——
+「没有差异」只能由真的对照实验支撑，citation 或 figure 不算。不写 `polarity`
+等于丢掉了方向信息，读者无法判断这条证据到底能不能支撑那句话。
+`polarity: effect` 的实证 claim 还被要求引用一个对照运行
+（`claim-registry-control-run-missing`）和一次 held-out 评估
+（`claim-registry-held-out-missing`），两条都在 `experiments-running` 一节展开。
 
 ## 5. 阶段操作表
 
@@ -185,6 +236,9 @@ scripts/statistics.ps1 --paper-root $paper
 scripts/experiment-loop.ps1 check --paper-root $paper
 scripts/experiment-loop.ps1 run-next --paper-root $paper
 scripts/experiment-loop.ps1 run-next --paper-root $paper --execute
+scripts/experiment-optimize.ps1 check --paper-root $paper
+scripts/experiment-optimize.ps1 run --paper-root $paper
+scripts/experiment-optimize.ps1 run --paper-root $paper --execute
 scripts/research-state.ps1 check --paper-root $paper
 ```
 
@@ -195,6 +249,87 @@ scripts/research-state.ps1 check --paper-root $paper
 run-log 与 compute ledger。执行结果仍需人工写回 `run_ids`、`result` 和
 `decision`，工具不会替人开释。纯 SoK 或不含实验的论文应写明
 `not_applicable_reason`，不要把空台账伪装成完成。
+
+内层参数优化使用 `data/experiment-optimization.yaml`：
+
+```yaml
+version: 1
+claim_id: C1
+objective: {name: metrics.accuracy, direction: maximize, baseline: 0.80, min_delta: 0.001}
+budget: {max_trials: 8, minutes_per_trial: 10, gpus_per_trial: 0}
+command: ["{python}", "train.py", "--lr", "{lr}", "--metrics", "{metrics_path}"]
+search_space: {lr: [0.01, 0.001], seed: [1, 2]}
+strategy: grid
+patience: 3
+```
+
+`experiment-optimize run` 默认只预演；加 `--execute` 才真正运行 trial。
+每轮写 run-log、compute ledger 和 `experiments/optimization/<id>/trials.jsonl`，
+最终只写 `data/experiment-optimization-proposals.yaml`，由人决定是否接受。
+
+自动研究方案与沙箱代码变异：
+
+```powershell
+scripts/autoresearch.ps1 plan --paper-root $paper --model qwen3:30b
+scripts/autoresearch.ps1 check-plans --paper-root $paper
+scripts/autoresearch.ps1 mutate --paper-root $paper --model qwen3:30b `
+    --objective "improve primary metric" --allow "src/**/*.py" `
+    --test-command "{python} -m unittest discover" --execute
+scripts/autoresearch.ps1 check-mutations --paper-root $paper
+```
+
+`plan` 只写 `data/research-plan-candidates.yaml`。`mutate` 要求显式 `--allow`，
+模型只能返回白名单文件的完整替换内容；工具在 disposable sandbox 中应用并运行
+测试，记录 unified diff、sandbox status 和输出，原仓库不会改变。`proposed`
+只表示沙箱通过，不表示方案或代码已被科学接受。
+
+跨会话长任务：
+
+```powershell
+scripts/long-task.ps1 start --paper-root $paper --spec data/long-task.yaml
+scripts/long-task.ps1 checkpoint --paper-root $paper --task T1 `
+    --step S1 --status complete --evidence artifacts/a.txt
+scripts/long-task.ps1 resume --paper-root $paper --task T1
+scripts/long-task.ps1 run-next --paper-root $paper --task T1 --execute
+scripts/long-task.ps1 check --paper-root $paper --task T1
+```
+
+任务状态由 hash-chained append-only `events.jsonl` 在磁盘上重放得到；新会话
+只凭 `paper-root` 和 task id 即可恢复当前步骤与 next action。
+
+独立 skill package：
+
+```powershell
+scripts/skill-registry.ps1 check --root .
+scripts/skill-registry.ps1 check --root . --strict-external
+scripts/skill-registry.ps1 resolve --skill ccfa-autoresearch
+scripts/skill-registry.ps1 pack --skill ccfa-core --out dist/skillpacks
+scripts/skill-registry.ps1 install --skill ccfa-autoresearch --target $target
+```
+
+registry 会解析并安装依赖，拒绝依赖环；每个 skill 使用可校验 `.skillpack`
+安装，不要求把整个 monorepo 一起复制过去。registry 同时支持 `repo`、`codex`
+和 `agents` 三类 source root，因此全局技能可以只登记、不复制原文；外部源缺失时
+普通 check 记为不可用，`--strict-external` 会把它升级为 problem。
+
+当前 registry 已登记 5 个仓库内 `ccfa-*` 技能、15 个 P0 CCF 技能、18 个
+`nature-*` 方法学技能，加 `cell-cns-figure`、`drawio-skill` 两个可视化技能，
+以及 10 个外部文献服务技能，共 50 个。`drawio-skill` 生成可编辑 `.drawio`
+文件，核心 IR/XML/sync/query/review 流程只需 Python 3，原生导出需要 draw.io，
+自动布局可选装 Graphviz，均不需要 API key。
+
+外部服务 adapter 检查：
+
+```powershell
+scripts/external-adapters.ps1 list --root .
+scripts/external-adapters.ps1 check --root .
+scripts/external-adapters.ps1 probe --root . --adapter pubmed --functional
+scripts/external-adapters.ps1 probe --root . --adapter exa
+```
+
+adapter 检查只读取环境变量名和运行最小健康检查，不读取或输出密钥值；
+`configured=no/manual` 与 `functional=fail` 会如实保留，不能把“装了 skill”
+误当成“服务已经可用”。
 
 涉及人工编码时，在这一阶段准备双人编码协议，不要等结果出来后再定义标签。
 
@@ -207,10 +342,18 @@ scripts/run-log.ps1 --log-dir "$paper/experiments/log" `
     --paper-root $paper run -- <command...>
 
 scripts/run-log.ps1 --log-dir "$paper/experiments/log" `
+    --paper-root $paper run --role treatment -- <command...>
+scripts/run-log.ps1 --log-dir "$paper/experiments/log" `
+    --paper-root $paper run --role negative-control -- <command...>
+
+scripts/run-log.ps1 --log-dir "$paper/experiments/log" `
     --paper-root $paper check
 scripts/run-ledger.ps1 sync --paper-root $paper
 scripts/run-ledger.ps1 check --paper-root $paper
 scripts/passport-ledger.ps1 check --paper-root $paper
+scripts/citation-calibration.ps1 build `
+    --paper-root $paper `
+    --out "$paper/calibration/citation-guard"
 scripts/citation-calibration.ps1 `
     --gold data/citation-gold.jsonl `
     --predictions data/citation-predictions.jsonl
@@ -225,6 +368,25 @@ scripts/experiment-loop.ps1 next --paper-root $paper
 长任务优先使用 `scripts/queue.ps1`。需要隔离时使用 Docker 沙箱，不要在 daemon
 不可用时静默改成宿主机执行。T-30 后的 build 豁免和脏树运行都必须写具体理由。
 
+`--role` 说明这次 experiment 运行在实验里扮演哪一边：`treatment` /
+`negative-control` / `ablation` / `baseline`。它和 `--purpose` 是两个问题——purpose
+回答「这是不是一次实验」，role 回答「它是实验里的哪一边」。声明为 build 的运行不能带
+role（`run-log check` 报 `run-log-role-on-build`），构建运行不在任何实验条件下。
+claim registry 里 `polarity: effect` 且 supported 的实证 claim 必须引用至少一个
+`negative-control` 或 `ablation` 运行，否则报 `claim-registry-control-run-missing`：
+只有 treatment 结果时，混淆因素没有被排除。
+
+`data/held-out-plan.yaml`（可选）记录评估划分的生命周期。每条 split 写 `role`
+（`held-out` / `development`）、`artifact`、以及 held-out 必须有的 `frozen_at` 与
+`access_budget`（正整数）；`accesses` 每次访问写 `run_id` / `at` / `reason`。
+校验是 fail-closed 的：访问次数超过预算报 `held-out-budget-exceeded`，冻结日之前的
+访问报 `held-out-access-before-freeze`（那次评估不算 held-out），`run_id` 必须能在
+`experiments/log` 里找到否则 `held-out-unknown-run`，声明的 `artifact` 路径不存在
+报 `held-out-artifact-missing`。supported 的 `polarity: effect` 实证 claim 还必须
+引用至少一次这样的 held-out 评估，否则 `claim-registry-held-out-missing`；论文确实
+没有 held-out 划分时，在同一个文件里写 `no_held_out_reason`（至少 40 字、不能是
+placeholder）说明原因——豁免必须留下文字，而不是靠不写文件。
+
 ### `results-ready`：把 claim 绑定到证据
 
 必须产出：每个 supported claim 对应具体源值；人工编码达到预设一致性门槛。
@@ -236,6 +398,12 @@ scripts/trace-claims.ps1 --manuscript "$paper/manuscript" `
 
 如果 venue 主文件不叫 `main.tex`，把路径替换为实际文件。无法支撑的 claim 应标为
 provisional 或 dropped，不要为了过 gate 修改源数据。
+
+小数标记的舍入容差按小数位推（`0.143` 容忍 `0.0005`），但这条容差不得超过源值量级
+的 5%：拿 `0.1` 去追 `0.143` 会判 `dataval-mismatch` 并提示「小数位不足」，因为
+1 位小数的半单位已经占源值的 35%，那个标记其实什么都没约束住。整数标记不受影响
+（本来就要求精确相等）。确实需要放宽时用 `--max-rounding-error 0.1`，
+`--max-rounding-error 0` 则完全关掉这条上限、回到旧行为。
 
 ### `writing`：完成可编译草稿
 
@@ -284,6 +452,29 @@ scripts/review-loop.ps1 drive --paper-root $paper `
     --review-command '["powershell","-File","review-round.ps1"]'
 scripts/rigor-rubric.ps1 check --paper-root $paper
 ```
+
+**签字要绑定版本**：`proof-audit.yaml` 里 `status: verified` 的复核必须写
+`audited_inputs`，列出复核时读过的文件及其 sha256。之后任何一次改稿都会让哈希对不上，
+复核当场作废（`proof-review-stale`），不会被一句"我评过了"蒙过去。
+
+同一条规则也覆盖另外两本人工台账：
+
+| 台账 | 必录文件 | 失效码 |
+| --- | --- | --- |
+| `proof-audit.yaml` | 定理所在的手稿文件 | `proof-review-stale` |
+| `citation-support.yaml` | 该条记录的 `source_path`（证据原文） | `citation-support-stale` |
+| `figure-support.yaml` | manifest 里这张图的 `file` | `figure-support-stale` |
+
+缺字段、路径越界、摘要格式错、漏掉必录文件，一律报对应的 `*-unbound`。
+
+```powershell
+# 复核完成后按当前字节生成片段，粘到台账对应 review 下面
+scripts/argument-audit.ps1 --paper-root $paper `
+    --stamp manuscript/main.tex --stamp manuscript/sections/4-proof.tex
+```
+
+`audited_inputs` 的路径必须是论文目录相对路径；越界（`../`）、摘要格式不对、
+或漏掉定理所在文件，都报 `proof-review-unbound`。
 
 人工复核应由真实的人完成。模型名字不能冒充 reviewer。跨族 provider 不可用时，
 同族 override 只能作为异常记录，不能当作独立评审；即使模型返回 pass，
@@ -382,11 +573,33 @@ run id、claim id 和 figure id：
 
 ```powershell
 scripts/revision-ledger.ps1 --ledger "$paper/reviews/revision-ledger.md"
+scripts/post-submission.ps1 init --paper-root $paper
 scripts/post-submission.ps1 check --paper-root $paper
 scripts/artifact-badge.ps1 check --paper-root $paper
 scripts/resubmit-pipeline.ps1 check --paper-root $paper
 scripts/talk-pipeline.ps1 check --paper-root $paper
 ```
+
+`post-submission init` 从论文真实的 run id、claim id、figure id 生成 schema 正确的骨架，
+默认**不覆盖**已有台账（确认后加 `--force`）。骨架本身不构成"已完成"：进入
+`rebuttal` / `major-revision` / `response-letter` 时 `rebuttal` 段必须为 `complete`，
+进入 `resubmitted` 时 `resubmit` 段必须为 `complete`，否则报
+`post-submission-section-incomplete`，空骨架无法把 gate 刷绿。
+
+尾部 gate 不是可选项。一旦 `stage.current` 离开共享阶段（`idea` 到 `submitted`），
+`readiness` 会强制要求 `data/post-submission.yaml`，缺失时报
+`post-submission-missing` 并阻塞，而不是像以前那样因为文件不存在就悄悄跳过整条 gate：
+
+| stage | 额外强制要求 |
+| --- | --- |
+| `rebuttal` / `camera-ready` / `major-revision` / `response-letter` | `data/post-submission.yaml` |
+| `resubmitted` / `accepted` / `archived` | 再加 `data/resubmit-plan.yaml` |
+| `camera-ready` / `accepted` / `archived` | 再加 `data/talk-plan.yaml` |
+
+`citation-calibration` 现在有两条路径：`--gold/--predictions` 只算 FNR/FPR；
+`build` 从论文真实的 bib、引用台账和手稿构造客观金标集——干净条目是论文自己的
+verified 引用，负例是人为注入的缺陷（删除台账项、抽掉证据体、DOI 撞车、悬空
+引用），标签由构造方式决定，不依赖人工意见，也不依赖模型自评。
 
 ## 6. 推进与回退
 

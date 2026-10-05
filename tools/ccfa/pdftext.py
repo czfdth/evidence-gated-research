@@ -41,6 +41,20 @@ def extract_text(pdf: Path, reader: Reader | None = None) -> str | None:
         return None
 
 
+def extract_pages(pdf: Path) -> list[str] | None:
+    """Return one text string per page, or None when PyMuPDF cannot read it."""
+    pdf = Path(pdf)
+    try:
+        import pymupdf
+    except ImportError:
+        return None
+    try:
+        with pymupdf.open(str(pdf)) as document:
+            return [page.get_text() for page in document]
+    except Exception:
+        return None
+
+
 def find_unresolved_markers(text: str, path: str) -> list[Problem]:
     problems: list[Problem] = []
     for match in _MARKER.finditer(text):

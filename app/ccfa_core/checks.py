@@ -135,3 +135,63 @@ def run_checkpoints(project, *, client: WorkflowClient | None = None) -> CheckRe
         problems=checkpoints,
         report=report,
     )
+
+
+def run_readiness(project, *, client: WorkflowClient | None = None) -> CheckResult:
+    """Run the workflow's readiness report for *project*.
+
+    Readiness is the one command that answers "what is the state of this paper
+    right now": the six dimensions, the per-gate verdicts and the blocking list.
+    It exits 1 when the paper is not ready, so the JSON payload - not the exit
+    code - is what matters here.
+    """
+
+    project_dir = _project_dir(project)
+    report = _run(
+        client or WorkflowClient(),
+        "readiness",
+        ("--paper-root", str(project_dir)),
+        "readiness",
+    )
+    blocking = report.get("blocking")
+    blocking = blocking if isinstance(blocking, list) else []
+    return CheckResult(
+        name="readiness",
+        ok=bool(report.get("ready")),
+        problems=tuple(str(item) for item in blocking),
+        report=report,
+    )
+
+
+def export_readiness(
+    project,
+    *,
+    out: str | Path | None = None,
+    today: str | date | None = None,
+    client: WorkflowClient | None = None,
+) -> Path:
+    """Write the workflow's one-page readiness report and return its path.
+
+    The report is the workflow's own Markdown render, not a workbench
+    summary: exporting must not become a second, drifting description of the
+    same paper.
+    """
+
+    project_dir = _project_dir(project)
+    if out is None:
+        report_date = today or date.today()
+        if isinstance(report_date, str):
+            report_date = date.fromisoformat(report_date)
+        target = project_dir / "reviews" / f"readiness-{report_date.isoformat()}.md"
+    else:
+        target = Path(out)
+    args = ["--paper-root", str(project_dir), "--out", str(target)]
+    if today is not None:
+        args += ["--today", today if isinstance(today, str) else today.isoformat()]
+    try:
+        (client or WorkflowClient()).json("readiness", args)
+    except WorkflowError as exc:
+        raise CheckError(f"导出 readiness 报告失败：{exc}") from exc
+    if not target.is_file():
+        raise CheckError(f"readiness 没有写出报告：{target}")
+    return target

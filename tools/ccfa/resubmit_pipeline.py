@@ -62,10 +62,23 @@ def _text_files(root: Path):
     ]
 
 
-def check(paper_root: Path) -> tuple[list[Problem], list[Problem]]:
+def check(
+    paper_root: Path,
+    *,
+    require_configured: bool = False,
+) -> tuple[list[Problem], list[Problem]]:
     paper_root = Path(paper_root).resolve()
     path = paper_root / PLAN
     if not path.is_file():
+        if require_configured:
+            return [
+                Problem(
+                    "resubmit-plan-missing",
+                    str(path),
+                    None,
+                    "已进入 resubmit tail stage，但没有 resubmit plan",
+                )
+            ], []
         return [], [
             Problem(
                 "resubmit-plan-not-configured",

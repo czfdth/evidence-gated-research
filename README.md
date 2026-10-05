@@ -48,13 +48,26 @@ git -C $paper status --short
 | `library/refs.bib` | 共享 BibTeX 条目；派生项目时复制为 `manuscript/references.bib` |
 | `library/wiki/` | 跨项目研究记忆卡片；支持确定性索引与本地搜索 |
 | `papers/<slug>/` | 派生论文项目的默认目标目录，已在 `.gitignore` 中忽略 |
-| `scripts/` | 所有确定性 CLI 的 PowerShell 包装器 |
+| `scripts/` | 确定性 CLI 包装器：Windows 用 `*.ps1`，POSIX 用 `scripts/ccfa` |
 | `tools/` | 确定性工具与项目测试 |
 | `automation/` | 四类本地自动化 prompt 与接线说明 |
 
 ## 工具一览
 
 `tools/ccfa/` 下的每个 CLI 模块和 `newpaper.create` 都有对应的 `scripts/*.ps1` 入口，后者对应 `tools/newpaper/create.py`。包装器统一从仓库根设置 `PYTHONPATH`，调用 `tools/.venv/Scripts/python.exe`，并原样透传退出码、stdout 与 stderr。
+
+同一个工具在任何平台都能跑，三条路径进入同一份 Python 代码：
+
+```powershell
+scripts/readiness.ps1 --paper-root $paper    # Windows / PowerShell
+sh scripts/ccfa readiness --paper-root $paper # POSIX
+python -m ccfa readiness --paper-root $paper  # 任意平台，无需 PowerShell
+```
+
+`ccfa list` 列出全部可移植命令；命令名与 `scripts/*.ps1` 的文件名一致（包括
+`statistics`、`rigor-rubric`、`archive` 这些非规则命名）。只有三个纯 Windows
+打包/发布脚本（`build-workbench`、`bundle-workflow`、`publish-public`）没有
+跨平台等价物，它们在 `ccfa.dispatch` 中显式声明，而不是被悄悄忽略。
 
 | 模块 | 一句话作用 | PowerShell 入口 |
 | --- | --- | --- |
@@ -73,6 +86,8 @@ git -C $paper status --short
 | `tools/ccfa/repro_package.py` | 打包复现材料并在干净环境验证重跑 | `scripts/repro-package.ps1` |
 | `tools/ccfa/repro_container.py` | 在固定 digest 的 Docker 镜像中重跑复现包，关闭网络并写出第二环境 receipt | `scripts/repro-container.ps1` |
 | `tools/ccfa/skillpack.py` | 把技能目录打成可校验的 `.skillpack`（逐文件 sha256、确定性打包、可选 AES-256-GCM），`verify` 能发现篡改与夹带成员 | `scripts/skillpack.ps1` |
+| `tools/ccfa/skill_registry.py` | 维护可组合 skill registry，支持仓库内与 `~/.codex/skills`、`~/.agents/skills` 外部 source root；解析依赖、拒绝环、内容哈希版本、可验证 `.skillpack` 与独立安装 | `scripts/skill-registry.ps1` |
+| `tools/ccfa/external_adapters.py` | 检查 CNKI、Zotero、Exa、Parallel、Firecrawl、Paperclip、PubMed、OpenAlex、Hugging Face 等外部服务 adapter 的 installed/configured/functional 等级；只读 env var 名称，不读取或输出密钥 | `scripts/external-adapters.ps1` |
 | `tools/ccfa/friction_log.py` | 记录工具缺陷与指令缺口，支持跨论文聚合 | `scripts/friction-log.ps1` |
 | `tools/ccfa/research_version.py` | 用 git tag 建立自动编号快照并输出任意两版 diff | `scripts/research-version.ps1` |
 | `tools/ccfa/library.py` | 索引和检索共享文献库（metadata + 笔记，不含 PDF 全文）；`index --embed` 用本地 bge-m3 建向量，`search --mode` 支持 keyword / semantic / hybrid 三种模式，hybrid 按倒数排名融合 | `scripts/library.ps1` |
@@ -94,6 +109,7 @@ git -C $paper status --short
 | `tools/ccfa/stages.py` | stage/gate 状态机的唯一来源；CLI 把整表以 JSON 输出，供工作台等外部消费者读取而不必 import `ccfa` | `scripts/stages.ps1` |
 | `tools/ccfa/doctor.py` | 预检本地平台依赖（git/LaTeX/codex/Docker/GPU/venv/交付格式/排版/数据版本/算力），报告缺什么与禁用了哪个能力；`found` 只表示在 PATH 上，不表示命令一定跑得通 | `scripts/doctor.ps1` |
 | `tools/ccfa/readiness.py` | 生成一页式 readiness report，执行 profile 对应的 gate，并区分结构、证据存在、gate 通过、独立复核与科学接受 | `scripts/readiness.ps1` |
+| `tools/ccfa/e2e_check.py` | 一条命令给出单篇论文的现状快照：完整 gate 表、阻塞、人工待办、环境健康、git/CI 与投稿倒计时；只读，缺省只打印不写文件 | `scripts/e2e-check.ps1` |
 | `tools/ccfa/dashboard.py` | 扫描 `papers/`，汇总每篇论文的 readiness、阻塞项、人工待办、Git/CI 状态与下一动作 | `scripts/dashboard.ps1` |
 | `tools/ccfa/formal_check.py` | 运行论文声明的 Z3/形式化检查，验证机器输出并写入 `reviews/formal-check.json` | `scripts/formal-check.ps1` |
 | `tools/ccfa/verifiers.py` | 清点本机可用的形式化验证器（z3/cvc5/lean/coq/isabelle/agda/why3/sage/julia），对照 `data/formal-checks.yaml` 说明缺哪个、禁用了哪个能力、如何安装 | `scripts/verifiers.ps1` |
@@ -101,9 +117,13 @@ git -C $paper status --short
 | `tools/ccfa/ara_compile.py` | 从 claim、exploration、figure、run 台账编译 ARA 五层 draft，并如实报告未满足的 Seal Level 1 项 | `scripts/ara-compile.ps1` |
 | `tools/ccfa/research_ledgers.py` | 校验 claim registry、assumptions/limitations、venue checklist、artifact provenance（含 advisory/verified 依赖边与环检测）、探索图、成本账本与风险登记册 | `scripts/research-ledgers.ps1` |
 | `tools/ccfa/ara_extract.py` | 从本地 tex/bib/figure/run/claim/exploration 材料确定性抽取 ARA semantic input，并报告未解析字段 | `scripts/ara-extract.ps1` |
+| `tools/ccfa/claim_extract.py` | 从 PDF 与仓库文本抽取带 source hash、页码/行号与 verbatim quote 的 candidate claims；支持 Ollama 语义抽取和离线启发式抽取，只写 `claim-candidates.yaml`，不自动修改 claim registry | `scripts/claim-extract.ps1` |
 | `tools/ccfa/reference_audit.py` | 对照 `docs/reference-registry.yaml` 检查已做源码审计的参照仓库是否出现新 commit | `scripts/reference-audit.ps1` |
 | `tools/ccfa/worktree_audit.py` | 对照 change log 审计工作树漂移，列出已覆盖与未覆盖的工作流文件 | `scripts/worktree-audit.ps1` |
 | `tools/ccfa/experiment_loop.py` | 校验 pilot 筛选与内层/外层实验循环，绑定真实 claim 与 run id；`run-next` 可在预算内执行 pilot 并同时写 run-log 与 compute ledger | `scripts/experiment-loop.ps1` |
+| `tools/ccfa/experiment_optimizer.py` | 按声明的搜索空间生成多 trial，预算内执行，读取 objective、更新 best、patience 早停，并只写 `experiment-optimization-proposals.yaml`；不自动修改 claim registry | `scripts/experiment-optimize.ps1` |
+| `tools/ccfa/long_task.py` | 用 hash-chained append-only events 保存跨会话任务状态；`resume` 从磁盘重放当前步骤，`run-next` 可执行有命令的下一步并写 run-log | `scripts/long-task.ps1` |
+| `tools/ccfa/autoresearch.py` | 生成候选研究方案；并让模型对白名单文件提出完整替换 patch，在 disposable sandbox 中应用和测试，记录 diff 与 sandbox 结果，原仓库不改 | `scripts/autoresearch.ps1` |
 | `tools/ccfa/post_submission.py` | 校验 rebuttal 回复矩阵、resubmit venue 差异与 talk 大纲的产出物契约 | `scripts/post-submission.ps1` |
 | `tools/ccfa/resubmit_pipeline.py` | 校验 resubmit 物理隔离、bib 冻结、无新增 run、匿名泄漏与 forbidden path | `scripts/resubmit-pipeline.ps1` |
 | `tools/ccfa/talk_pipeline.py` | 校验 conference talk 的 slide、claim/figure 复用、speaker notes 与 Q&A | `scripts/talk-pipeline.ps1` |
@@ -129,6 +149,7 @@ git -C $paper status --short
 | 任意阶段的状态校验 | `scripts/validate.ps1` | 校验状态文件结构与 stage/gate 合法性 |
 | 任意阶段（开始前） | `scripts/doctor.ps1` | 预检平台依赖；默认只把必需的 `git` 缺失判为 problem，`--strict` 把可选缺失也判为 problem；只有 Docker 会真正执行探测，daemon 不可达报 `doctor-daemon-down` |
 | 任意阶段（开始前） | `scripts/readiness.ps1` | 生成一页式 readiness report；支持 `--profile minimal|standard|high-assurance`，输出结构、证据存在、`gate-verified`、人工复核、科学接受与协作就绪六个维度；任一下游 gate 失败都会使 `ready=false` |
+| 任意阶段（总检） | `scripts/e2e-check.ps1` | 单篇论文的一页式现状快照：跑完整 gate 套件 + `doctor` 预检，汇总阻塞、人工待办、环境健康、git/CI 与投稿倒计时；`--out` 才写文件，缺省只打印 |
 | 任意阶段（claim 中心台账） | `scripts/research-ledgers.ps1` | 校验 claim→proof/experiment/figure/citation/assumption/limitation 的交叉引用，以及 venue checklist、artifact provenance、探索图、成本与风险台账 |
 | 读取当前阶段 | `scripts/milestones.ps1` | 调用 `stage` 子命令输出 `current`、`gate`、`updated_at` |
 | 投稿日期倒排 | `scripts/milestones.ps1` | 调用 `due` 子命令检查 T-90、T-60、T-30、T-21、T-14、T-7、T-3、T-1 与 gate 缺口；T-30 之后出现新实验运行会报 `t30-new-experiment`，只声明 `build` 但没写 `purpose_reason` 会报 `t30-unjustified-build-run` |

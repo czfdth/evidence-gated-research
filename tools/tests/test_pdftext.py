@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pymupdf
 
-from ccfa.pdftext import extract_text, find_unresolved_markers
+from ccfa.pdftext import extract_pages, extract_text, find_unresolved_markers
 
 
 class TestFindUnresolvedMarkers(unittest.TestCase):
@@ -71,6 +71,21 @@ class TestExtractText(unittest.TestCase):
         text = extract_text(pdf)
         self.assertIsNotNone(text)
         self.assertIn("HELLO", text.replace("\n", " "))
+
+    def test_real_pdf_pages_are_extracted_separately(self):
+        pdf = self.root / "pages.pdf"
+        document = pymupdf.open()
+        document.new_page().insert_text((72, 72), "FIRST PAGE")
+        document.new_page().insert_text((72, 72), "SECOND PAGE")
+        document.save(str(pdf))
+        document.close()
+
+        pages = extract_pages(pdf)
+
+        self.assertIsNotNone(pages)
+        self.assertEqual(len(pages), 2)
+        self.assertIn("FIRST", pages[0])
+        self.assertIn("SECOND", pages[1])
 
 
 if __name__ == "__main__":

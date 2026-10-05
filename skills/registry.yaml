@@ -1,0 +1,211 @@
+version: 1
+source_roots:
+  repo: .
+  codex: ~/.codex/skills
+  agents: ~/.agents/skills
+skills:
+  - id: ccfa-core
+    version: 0.1.0
+    path: skills/ccfa-core
+    description: Evidence-first workflow prerequisites and repository contract.
+    dependencies: []
+  - id: ccfa-claims
+    version: 0.1.0
+    path: skills/ccfa-claims
+    description: PDF and repository candidate-claim extraction.
+    dependencies: [ccfa-core]
+  - id: ccfa-experiments
+    version: 0.1.0
+    path: skills/ccfa-experiments
+    description: Budgeted experiment execution and parameter optimization.
+    dependencies: [ccfa-core]
+  - id: ccfa-autoresearch
+    version: 0.1.0
+    path: skills/ccfa-autoresearch
+    description: Candidate research plans and sandboxed code mutations.
+    dependencies: [ccfa-core, ccfa-experiments]
+  - id: ccfa-evidence
+    version: 0.1.0
+    path: skills/ccfa-evidence
+    description: Readiness, cross-review, citation and governance gates.
+    dependencies: [ccfa-core]
+  - id: ccf-common
+    source: {root: codex, path: ccf-common}
+    description: Shared CCFA preflight, routing, scope and evidence boundary.
+    dependencies: [ccfa-core]
+  - id: ccf-humanization
+    source: {root: codex, path: ccf-humanization}
+    description: Mandatory humanization preflight for CCFA research and writing workflows.
+    dependencies: [ccf-common]
+  - id: ccf-pipeline-orchestrator
+    source: {root: codex, path: ccf-pipeline-orchestrator}
+    description: Stage, gate, artifact and deadline orchestration.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-project-scaffolder
+    source: {root: codex, path: ccf-project-scaffolder}
+    description: Initialize research project directories, templates and ccfa.yaml.
+    dependencies: [ccf-common, ccfa-core]
+  - id: ccf-idea-optimizer
+    source: {root: codex, path: ccf-idea-optimizer}
+    description: Turn rough ideas into structured problems, insights and evidence plans.
+    dependencies: [ccf-common]
+  - id: ccf-idea-reviewer
+    source: {root: codex, path: ccf-idea-reviewer}
+    description: Review research ideas for value, novelty, insight and mechanism.
+    dependencies: [ccf-common]
+  - id: ccf-literature-searcher
+    source: {root: codex, path: ccf-literature-searcher}
+    description: Verify prior art, related work, benchmarks and citation candidates.
+    dependencies: [ccf-common]
+  - id: ccf-literature-monitor
+    source: {root: codex, path: ccf-literature-monitor}
+    description: Track recent papers, venue feeds and competitor overlap.
+    dependencies: [ccf-common]
+  - id: ccf-experiment-designer
+    source: {root: codex, path: ccf-experiment-designer}
+    description: Design experiment protocols, baselines, metrics, ablations and result tables.
+    dependencies: [ccf-common, ccfa-experiments]
+  - id: ccf-paper-writer
+    source: {root: codex, path: ccf-paper-writer}
+    description: Draft, revise, polish and compress CCF manuscript prose.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-paper-reviewer
+    source: {root: codex, path: ccf-paper-reviewer}
+    description: Review manuscript claims, evidence and submission maturity without rewriting.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-integrity-auditor
+    source: {root: codex, path: ccf-integrity-auditor}
+    description: Audit claims, numbers, terminology and citations against evidence.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-submission-checker
+    source: {root: codex, path: ccf-submission-checker}
+    description: Check venue rules, templates, anonymity, pages and reproducibility.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-rebuttal-writer
+    source: {root: codex, path: ccf-rebuttal-writer}
+    description: Draft rebuttals, revision ledgers and response letters.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: ccf-visual-composer
+    source: {root: codex, path: ccf-visual-composer}
+    description: Render CCF figures, visual tables and method diagrams.
+    dependencies: [ccf-common, ccfa-core]
+  - id: nature-academic-search
+    source: {root: codex, path: nature-academic-search}
+    description: Literature search, citation management, MeSH strategy and citation-impact audit.
+    dependencies: [ccf-common]
+  - id: nature-citation
+    source: {root: codex, path: nature-citation}
+    description: Find and verify Nature/CNS-family literature supporting manuscript claims.
+    dependencies: [nature-academic-search, ccfa-evidence]
+  - id: nature-data
+    source: {root: codex, path: nature-data}
+    description: Draft or audit Data/Code Availability statements, repository plans and FAIR metadata.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: nature-downloader
+    source: {root: codex, path: nature-downloader}
+    description: Lawful OA, publisher API, CNKI institutional and supporting-information retrieval routes.
+    dependencies: [nature-academic-search]
+  - id: nature-experiment-log
+    source: {root: codex, path: nature-experiment-log}
+    description: Standardized experiment logs with YAML frontmatter and optional Feishu/Obsidian integration.
+    dependencies: [ccfa-core]
+  - id: nature-figure
+    source: {root: codex, path: nature-figure}
+    description: Create, revise, audit and export manuscript scientific figures.
+    dependencies: [ccf-common]
+  - id: nature-image2ppt
+    source: {root: codex, path: nature-image2ppt}
+    description: Reconstruct slide images, screenshots and scanned PDFs as editable PowerPoint.
+    dependencies: [ccf-common]
+  - id: nature-literature-pipeline
+    source: {root: codex, path: nature-literature-pipeline}
+    description: Automated literature discovery, scoring, fine reading, delivery and archival pipeline.
+    dependencies: [nature-academic-search, nature-paper-card]
+  - id: nature-paper-card
+    source: {root: codex, path: nature-paper-card}
+    description: Structured deep-reading Paper Card with method and evidence-chain analysis.
+    dependencies: [ccf-common]
+  - id: nature-paper-to-patent
+    source: {root: codex, path: nature-paper-to-patent}
+    description: Convert papers or inventor materials into evidence-grounded Chinese patent drafts.
+    dependencies: [ccf-common]
+  - id: nature-paper2ppt
+    source: {root: codex, path: nature-paper2ppt}
+    description: Create or improve a Chinese academic PPTX from a paper or reading notes.
+    dependencies: [nature-paper-card]
+  - id: nature-polishing
+    source: {root: codex, path: nature-polishing}
+    description: Polish, translate or tighten existing academic prose without changing evidence boundaries.
+    dependencies: [ccf-common]
+  - id: nature-reader
+    source: {root: codex, path: nature-reader}
+    description: Source-grounded Chinese-English paper readers with aligned figures, tables and equations.
+    dependencies: [ccf-common]
+  - id: nature-ref-verifier
+    source: {root: codex, path: nature-ref-verifier}
+    description: Multi-source field-by-field verification of references and DOI conflicts.
+    dependencies: [nature-academic-search, ccfa-evidence]
+  - id: nature-response
+    source: {root: codex, path: nature-response}
+    description: Draft, audit or revise peer-review responses, revision letters and LaTeX revision packages.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: nature-reviewer
+    source: {root: codex, path: nature-reviewer}
+    description: Evidence-grounded mock peer review of scientific manuscripts or excerpts.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: nature-statistics
+    source: {root: codex, path: nature-statistics}
+    description: Audit or improve manuscript statistical reporting, experimental units and uncertainty.
+    dependencies: [ccfa-evidence]
+  - id: nature-writing
+    source: {root: codex, path: nature-writing}
+    description: Draft or restructure scientific manuscript arguments, sections and initial-submission materials.
+    dependencies: [ccf-common, ccfa-evidence]
+  - id: cell-cns-figure
+    source: {root: codex, path: cell-cns-figure}
+    description: Create, polish and review Cell/Nature/Science-style quantitative figures.
+    dependencies: [ccf-common]
+  - id: drawio-skill
+    source: {root: codex, path: drawio-skill}
+    description: Create and edit editable draw.io architecture, UML, BPMN, network and swimlane diagrams, and sync, query, review and export existing ones.
+    dependencies: [ccf-common]
+  - id: pyzotero
+    source: {root: agents, path: pyzotero}
+    description: Programmatic Zotero library management through Web API or local API.
+    dependencies: [ccf-common]
+  - id: zotero-obsidian-bridge
+    source: {root: agents, path: zotero-obsidian-bridge}
+    description: Bridge Zotero source notes into project knowledge and writing.
+    dependencies: [ccf-common]
+  - id: cnki-search
+    source: {root: agents, path: cnki-search}
+    description: Search CNKI through an authenticated browser session.
+    dependencies: [ccf-common]
+  - id: exa-search
+    source: {root: agents, path: exa-search}
+    description: Exa scientific and technical web search and extraction.
+    dependencies: [ccf-common]
+  - id: parallel-web
+    source: {root: agents, path: parallel-web}
+    description: Parallel web search, deep research and enrichment.
+    dependencies: [ccf-common]
+  - id: firecrawl-research-papers
+    source: {root: codex, path: firecrawl-research-papers}
+    description: Firecrawl paper search, reading and web evidence extraction.
+    dependencies: [ccf-common]
+  - id: paperclip
+    source: {root: agents, path: paperclip}
+    description: GXL Paperclip biomedical search, full-text grep and claim verification.
+    dependencies: [ccf-common]
+  - id: pubmed-database
+    source: {root: agents, path: pubmed-database}
+    description: PubMed and NCBI database retrieval.
+    dependencies: [ccf-common]
+  - id: literature-search-openalex
+    source: {root: agents, path: literature-search-openalex}
+    description: OpenAlex scholarly search and citation graph retrieval.
+    dependencies: [ccf-common]
+  - id: hugging-science
+    source: {root: agents, path: hugging-science}
+    description: Discover scientific models, datasets, Spaces and methodology posts.
+    dependencies: [ccf-common]

@@ -19,7 +19,7 @@ from ccfa.datasource import (
     resolve_within_base_dir,
 )
 from ccfa.dataval import Tag, find_tags, find_untagged
-from ccfa.datavalue import values_match
+from ccfa.datavalue import DEFAULT_MAX_ROUNDING_ERROR, values_match
 from ccfa.texscan import iter_tex_files
 
 _TAG_ERRORS = (SourceError, OSError, ValueError, KeyError, IndexError, TypeError)
@@ -55,6 +55,7 @@ def check(
     tolerance: float = 1e-9,
     rel_tolerance: float = 0.0,
     untagged: bool = False,
+    max_rounding_error: float = DEFAULT_MAX_ROUNDING_ERROR,
 ) -> tuple[list[Problem], list[Problem]]:
     docs = list(docs)
     problems: list[Problem] = []
@@ -71,14 +72,38 @@ def check(
                 )
             )
             continue
-        if not values_match(tag.claimed, actual, tolerance, rel_tolerance):
+        matches = values_match(
+            tag.claimed,
+            actual,
+            tolerance,
+            rel_tolerance,
+            max_rounding_error,
+        )
+        if not matches:
+            message = (
+                f"标记值 {tag.claimed!r} 与源值 {str(actual)!r} 不符"
+                f"（{tag.source_path}:{tag.key_path}）"
+            )
+            if max_rounding_error > 0 and values_match(
+                tag.claimed,
+                actual,
+                tolerance,
+                rel_tolerance,
+                0.0,
+            ):
+                # It would have passed before the precision cap: say so, or the
+                # author sees a mismatch that looks like the number is wrong.
+                message += (
+                    f"；小数位不足：该标记的舍入容差超过源值量级的"
+                    f" {max_rounding_error:.0%}，把标记写到至少两位有效数字"
+                    "（或用 --max-rounding-error 0 关掉这条上限）"
+                )
             problems.append(
                 Problem(
                     "dataval-mismatch",
                     tag.path,
                     tag.line,
-                    f"标记值 {tag.claimed!r} 与源值 {str(actual)!r} 不符"
-                    f"（{tag.source_path}:{tag.key_path}）",
+                    message,
                 )
             )
     advisories: list[Problem] = []
@@ -106,6 +131,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-dir")
     parser.add_argument("--tolerance", type=float, default=1e-9)
     parser.add_argument("--rel-tolerance", type=float, default=0.0)
+    parser.add_argument(
+        "--max-rounding-error",
+        type=float,
+        default=DEFAULT_MAX_ROUNDING_ERROR,
+        help=(
+            "小数标记的舍入容差上限（占源值量级的比例，默认 0.05）；"
+            "0 表示关闭该上限"
+        ),
+    )
     parser.add_argument("--untagged", action="store_true")
     args = parser.parse_args(argv[1:])
 
@@ -128,6 +162,7 @@ def main(argv: list[str]) -> int:
             args.tolerance,
             args.rel_tolerance,
             untagged=args.untagged,
+            max_rounding_error=args.max_rounding_error,
         )
     except (ValueError, ToolEnvironmentError) as exc:
         return tool_error(str(exc))

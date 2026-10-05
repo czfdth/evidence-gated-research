@@ -34,6 +34,39 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TIMEOUT_S = 120.0
 
 
+def _candidate_roots() -> list[Path]:
+    """Places an installed copy may find a workflow checkout, best first.
+
+    A bundled copy that ships next to the frozen app wins over unrelated
+    checkouts elsewhere in the profile, and the repository this file lives in
+    stays the first choice while developing.
+    """
+
+    candidates = [DEFAULT_ROOT]
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / "workflow")
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        candidates.append(Path(local) / "Programs" / "research-workflow")
+    home = Path.home()
+    candidates.append(home / "research-workflow")
+    candidates.append(home / "Documents" / "research-workflow")
+    return candidates
+
+
+def discover_root(candidates: list[Path] | None = None) -> Path:
+    """Return the first candidate that looks like a workflow checkout.
+
+    Falls back to ``DEFAULT_ROOT`` so callers still get an actionable path in
+    their error message instead of ``None``.
+    """
+
+    for candidate in candidates if candidates is not None else _candidate_roots():
+        if (candidate / "tools" / "ccfa").is_dir():
+            return Path(candidate)
+    return DEFAULT_ROOT
+
+
 class WorkflowError(RuntimeError):
     """A workflow call could not be made, or broke its output contract."""
 
@@ -72,7 +105,7 @@ class WorkflowClient:
         env: dict | None = None,
     ) -> None:
         configured = os.environ.get(WORKFLOW_ROOT_ENV, "").strip()
-        self.root = Path(root or configured or DEFAULT_ROOT)
+        self.root = Path(root or configured or discover_root())
         self.python = Path(python) if python else self._default_python()
         self.timeout = float(timeout)
         self._extra_env = dict(env or {})
@@ -84,6 +117,11 @@ class WorkflowClient:
         candidate = self.root / "tools" / ".venv" / "Scripts" / "python.exe"
         if candidate.is_file():
             return candidate
+        # Bundled runtime layout (scripts/bundle-workflow.ps1): an embeddable
+        # CPython next to the sources, wired up through its ._pth file.
+        bundled = self.root / "python" / "python.exe"
+        if bundled.is_file():
+            return bundled
         # Inside a frozen build ``sys.executable`` is the app itself, not an
         # interpreter, so it can never run ``-m ccfa.<tool>``. Require the
         # workflow's own interpreter (or an explicit setting) instead.
@@ -223,7 +261,46 @@ class WorkflowClient:
             )
         stages = payload.get("stages")
         count = len(stages) if isinstance(stages, list) else 0
+        missing, note = self.probe_interpreter()
+        if missing:
+            # A gate that cannot import its engine fails, and a failed gate
+            # reads as a blocked paper. Say which side is broken before anyone
+            # trusts the report.
+            return (
+                False,
+                f"工作流解释器 {self.python.name} 缺少依赖："
+                f"{'、'.join(missing)}（相关 gate 会失败而不是通过）；"
+                "把工作流目录指到带 tools/.venv 的检出，"
+                f"或用 {WORKFLOW_PYTHON_ENV} 指定解释器",
+            )
         return (
             True,
-            f"OK：{self.root}（{count} 个 stage，解释器 {self.python.name}）",
+            f"OK：{self.root}（{count} 个 stage，"
+            f"解释器 {self.python.name}，{note}）",
         )
+
+    def probe_interpreter(self) -> tuple[list[str], str]:
+        """Ask the workflow whether this interpreter can import its gates' deps.
+
+        An older workflow without ``doctor --imports-only`` is reported as
+        "unavailable" rather than failing the probe: the workbench must stay
+        usable against a workflow it does not fully know.
+        """
+
+        try:
+            payload = self.json("doctor", ("--imports-only",))
+        except WorkflowError as exc:
+            return [], f"依赖自检不可用（{exc}）"
+        if payload.get("ok"):
+            return [], "依赖自检通过"
+        missing = payload.get("missing")
+        names = (
+            [
+                str(item.get("module"))
+                for item in missing
+                if isinstance(item, dict) and item.get("module")
+            ]
+            if isinstance(missing, list)
+            else []
+        )
+        return names or ["未知模块"], "依赖自检失败"

@@ -13,8 +13,13 @@ from ccfa.library import (
     SCHEMA_VERSION,
     build_index,
     check_library,
+    cosine_similarity,
+    embedding_text,
     main,
+    pack_vector,
+    reciprocal_rank_fusion,
     search_index,
+    unpack_vector,
 )
 from ccfa.bib import load_entries, load_records
 
@@ -76,8 +81,7 @@ class TestLoadRecords(LibraryTests):
 
     def test_load_records_keeps_first_duplicate_and_records_key(self):
         path = self._write_bib(
-            "@misc{dup, title={First}, year={2019}}\n"
-            "@misc{dup, title={Second}, year={2020}}\n"
+            "@misc{dup, title={First}, year={2019}}\n@misc{dup, title={Second}, year={2020}}\n"
         )
 
         parsed = load_records(path)
@@ -106,9 +110,7 @@ class TestLoadEntriesCompatibility(LibraryTests):
         self.assertEqual(entries["sample"]._fields, ("key", "doi", "title"))
 
     def test_load_entries_still_rejects_duplicate_keys(self):
-        path = self._write_bib(
-            "@misc{dup, title={First}}\n@misc{dup, title={Second}}\n"
-        )
+        path = self._write_bib("@misc{dup, title={First}}\n@misc{dup, title={Second}}\n")
 
         with self.assertRaises(ValueError):
             load_entries(path)
@@ -142,8 +144,7 @@ class TestBuildIndex(LibraryTests):
         connection = sqlite3.connect(self.root / "index.db")
         try:
             meta = connection.execute(
-                "SELECT schema_version, refs_sha256, notes_sha256, entry_count "
-                "FROM meta"
+                "SELECT schema_version, refs_sha256, notes_sha256, entry_count FROM meta"
             ).fetchone()
         finally:
             connection.close()
@@ -161,9 +162,7 @@ class TestBuildIndex(LibraryTests):
 
         connection = sqlite3.connect(self.root / "index.db")
         try:
-            meta_columns = [
-                row[1] for row in connection.execute("PRAGMA table_info(meta)")
-            ]
+            meta_columns = [row[1] for row in connection.execute("PRAGMA table_info(meta)")]
             sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'papers'"
             ).fetchone()[0]
@@ -265,9 +264,7 @@ class TestSearchIndex(LibraryTests):
 
     def test_quotes_dashes_and_boolean_words_are_literal_queries(self):
         self._write_bib(
-            "@misc{literal, "
-            "title={quote\"mark Alpha-Beta NOT this}, "
-            "abstract={plain text}}\n"
+            '@misc{literal, title={quote"mark Alpha-Beta NOT this}, abstract={plain text}}\n'
         )
         build_index(self.root)
 
@@ -409,10 +406,7 @@ class TestLibraryCheck(LibraryTests):
         self.assertIn("extra", extra[0].message)
 
     def test_duplicate_bib_key_is_reported(self):
-        self._write_bib(
-            "@misc{dup, title={First}}\n"
-            "@misc{dup, title={Second}}\n"
-        )
+        self._write_bib("@misc{dup, title={First}}\n@misc{dup, title={Second}}\n")
         build_index(self.root)
 
         problems = check_library(self.root)
@@ -449,10 +443,7 @@ class TestLibraryCheck(LibraryTests):
     def test_two_problems_are_both_reported_without_early_return(self):
         self._write_bib("@misc{sample, title={Sample}}\n")
         build_index(self.root)
-        self._write_bib(
-            "@misc{sample, title={Sample}}\n"
-            "@misc{sample, title={Duplicate}}\n"
-        )
+        self._write_bib("@misc{sample, title={Sample}}\n@misc{sample, title={Duplicate}}\n")
 
         codes = self._codes(check_library(self.root))
 
@@ -495,9 +486,7 @@ class TestMain(LibraryTests):
         with redirect_stdout(index_stdout), redirect_stderr(StringIO()):
             index_code = main(["library", "--dir", str(self.root), "index"])
         with redirect_stdout(search_stdout), redirect_stderr(StringIO()):
-            search_code = main(
-                ["library", "--dir", str(self.root), "search", "注意力"]
-            )
+            search_code = main(["library", "--dir", str(self.root), "search", "注意力"])
 
         self.assertEqual(index_code, 0)
         self.assertEqual(search_code, 0)
@@ -543,7 +532,6 @@ class TestMain(LibraryTests):
         self.assertIn("key/title/authors/year/venue/abstract/notes；", normalized)
         self.assertNotIn("notes/path", normalized)
 
-
     def test_check_command_reports_problems_with_exit_one(self):
         self._write_bib()
         stdout = StringIO()
@@ -567,6 +555,317 @@ class TestMain(LibraryTests):
         self.assertEqual(code, 2)
         self.assertIn("工具错误", stderr.getvalue())
         self.assertIn("先运行 library index", stderr.getvalue())
+
+
+SEMANTIC_VOCAB = ("attention", "graph", "molecule", "cheap", "rank")
+
+SEMANTIC_BIB = r"""
+@inproceedings{linformer,
+  title    = {Linformer: Self-Attention with Linear Complexity},
+  author   = {Wang and Li},
+  year     = {2020},
+  abstract = {low rank approximation of keys and values}
+}
+
+@misc{gnn,
+  title    = {Graph Neural Networks for Molecules},
+  author   = {Kim},
+  year     = {2022},
+  abstract = {message passing over molecular graphs}
+}
+
+@misc{cheap,
+  title    = {Attention Cheaply Revisited},
+  author   = {Doe},
+  year     = {2023},
+  abstract = {practical tricks for small budgets}
+}
+"""
+
+
+def fake_embedder(texts):
+    """Deterministic bag-of-words embedder so vector tests never touch Ollama.
+
+    Using a fixed vocabulary keeps the expected cosine ordering verifiable by
+    hand, which a real 1024-dimension model cannot offer.
+    """
+    return [[float(text.lower().count(word)) for word in SEMANTIC_VOCAB] for text in texts]
+
+
+class TestVectorPrimitives(LibraryTests):
+    def test_pack_unpack_round_trip(self):
+        vector = [0.25, -1.5, 3.0, 0.0]
+
+        self.assertEqual(unpack_vector(pack_vector(vector)), vector)
+
+    def test_unpack_rejects_a_truncated_blob(self):
+        with self.assertRaises(ValueError):
+            unpack_vector(b"\x00\x00\x00")
+
+    def test_cosine_similarity_basics(self):
+        self.assertAlmostEqual(cosine_similarity([1.0, 0.0], [2.0, 0.0]), 1.0)
+        self.assertAlmostEqual(cosine_similarity([1.0, 0.0], [0.0, 1.0]), 0.0)
+        self.assertEqual(cosine_similarity([1.0], [1.0, 2.0]), 0.0)
+        self.assertEqual(cosine_similarity([], []), 0.0)
+        self.assertEqual(cosine_similarity([0.0, 0.0], [1.0, 1.0]), 0.0)
+
+    def test_embedding_text_excludes_bibliographic_fields(self):
+        text = embedding_text(
+            {
+                "title": "A Title",
+                "abstract": "An abstract",
+                "notes": "my note",
+                "authors": "Alice and Bob",
+                "venue": "TestConf",
+                "year": "2024",
+            }
+        )
+
+        self.assertIn("A Title", text)
+        self.assertIn("An abstract", text)
+        self.assertIn("my note", text)
+        self.assertNotIn("Alice", text)
+        self.assertNotIn("TestConf", text)
+        self.assertNotIn("2024", text)
+
+    def test_embedding_text_skips_empty_parts(self):
+        self.assertEqual(embedding_text({"title": "Only", "abstract": "", "notes": "  "}), "Only")
+
+    def test_fusion_prefers_keys_found_by_both_rankers(self):
+        fused = reciprocal_rank_fusion([["only_keyword"], ["sem_hit", "only_keyword"]])
+
+        self.assertEqual([key for key, _score in fused], ["only_keyword", "sem_hit"])
+
+    def test_fusion_ties_break_on_key_for_determinism(self):
+        first = reciprocal_rank_fusion([["b"], ["a"]])
+        second = reciprocal_rank_fusion([["a"], ["b"]])
+
+        self.assertEqual([key for key, _score in first], ["a", "b"])
+        self.assertEqual(first, second)
+
+
+class TestVectorIndex(LibraryTests):
+    def _build_semantic(self):
+        self._write_bib(SEMANTIC_BIB)
+        return build_index(self.root, embed=True, embedder=fake_embedder)
+
+    def test_index_without_embed_has_no_vectors(self):
+        self._write_bib(SEMANTIC_BIB)
+        build_index(self.root)
+
+        connection = sqlite3.connect(self.root / "index.db")
+        try:
+            count = connection.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
+            meta = connection.execute("SELECT COUNT(*) FROM vector_index").fetchone()[0]
+        finally:
+            connection.close()
+
+        self.assertEqual(count, 0)
+        self.assertEqual(meta, 0)
+
+    def test_index_with_embed_records_model_and_dimension(self):
+        summary = self._build_semantic()
+
+        connection = sqlite3.connect(self.root / "index.db")
+        try:
+            row = connection.execute(
+                "SELECT model, dim, metric, row_count FROM vector_index"
+            ).fetchone()
+            stored = connection.execute("SELECT key FROM vectors ORDER BY key").fetchall()
+        finally:
+            connection.close()
+
+        self.assertEqual(summary["embedded"], 3)
+        self.assertEqual(row[0], "bge-m3")
+        self.assertEqual(row[1], len(SEMANTIC_VOCAB))
+        self.assertEqual(row[2], "cosine")
+        self.assertEqual(row[3], 3)
+        self.assertEqual([item[0] for item in stored], ["cheap", "gnn", "linformer"])
+
+    def test_meta_columns_are_unchanged_by_embedding(self):
+        self._build_semantic()
+
+        connection = sqlite3.connect(self.root / "index.db")
+        try:
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(meta)")]
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            columns,
+            [
+                "schema_version",
+                "refs_sha256",
+                "notes_sha256",
+                "built_at",
+                "entry_count",
+            ],
+        )
+
+    def test_embedder_failure_leaves_the_previous_index_intact(self):
+        self._write_bib(SEMANTIC_BIB)
+        build_index(self.root)
+
+        def boom(_texts):
+            raise ValueError("embedding service down")
+
+        with self.assertRaises(ValueError):
+            build_index(self.root, embed=True, embedder=boom)
+
+        result = search_index(self.root, "attention")
+        self.assertTrue(result["results"])
+        connection = sqlite3.connect(self.root / "index.db")
+        try:
+            count = connection.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
+        finally:
+            connection.close()
+        self.assertEqual(count, 0)
+
+    def test_semantic_search_without_vectors_names_the_command(self):
+        self._write_bib(SEMANTIC_BIB)
+        build_index(self.root)
+
+        with self.assertRaises(ValueError) as raised:
+            search_index(self.root, "graph molecules", mode="semantic")
+
+        self.assertIn("library index --embed", str(raised.exception))
+
+    def test_check_reports_a_missing_vector(self):
+        self._build_semantic()
+        connection = sqlite3.connect(self.root / "index.db")
+        try:
+            connection.execute("DELETE FROM vectors WHERE key = 'gnn'")
+            connection.commit()
+        finally:
+            connection.close()
+
+        codes = {problem.code for problem in check_library(self.root)}
+
+        self.assertIn("vector-index-missing", codes)
+        self.assertIn("vector-index-count-mismatch", codes)
+
+    def test_check_is_clean_on_a_consistent_vector_index(self):
+        self._build_semantic()
+
+        self.assertEqual(check_library(self.root), [])
+
+
+class TestSearchModes(LibraryTests):
+    def _build_semantic(self):
+        self._write_bib(SEMANTIC_BIB)
+        build_index(self.root, embed=True, embedder=fake_embedder)
+
+    def test_keyword_mode_keeps_the_exact_phrase_contract(self):
+        self._build_semantic()
+
+        hit = search_index(self.root, "low rank approximation")
+
+        self.assertEqual(hit["mode"], "fts")
+        self.assertEqual([item["key"] for item in hit["results"]], ["linformer"])
+        self.assertEqual(hit["results"][0]["matched_by"], ["keyword"])
+        self.assertIsNone(hit["results"][0]["semantic_rank"])
+
+    def test_semantic_mode_finds_what_keyword_mode_misses(self):
+        self._build_semantic()
+        keyword = search_index(self.root, "graph molecules")
+        semantic = search_index(
+            self.root, "graph molecules", mode="semantic", embedder=fake_embedder
+        )
+
+        self.assertEqual(keyword["results"], [])
+        self.assertEqual(semantic["mode"], "semantic")
+        self.assertEqual(semantic["search_mode"], "semantic")
+        self.assertEqual(semantic["results"][0]["key"], "gnn")
+        self.assertEqual(semantic["results"][0]["matched_by"], ["semantic"])
+        self.assertGreater(semantic["results"][0]["semantic_score"], 0.0)
+
+    def test_hybrid_annotates_which_ranker_found_each_key(self):
+        self._build_semantic()
+
+        result = search_index(
+            self.root,
+            "low rank approximation",
+            mode="hybrid",
+            embedder=fake_embedder,
+        )
+
+        by_key = {item["key"]: item for item in result["results"]}
+        self.assertEqual(result["search_mode"], "hybrid")
+        self.assertEqual(result["results"][0]["key"], "linformer")
+        self.assertEqual(by_key["linformer"]["matched_by"], ["keyword", "semantic"])
+        self.assertEqual(by_key["linformer"]["keyword_rank"], 1)
+        self.assertEqual(by_key["linformer"]["semantic_rank"], 1)
+        self.assertEqual(by_key["gnn"]["matched_by"], ["semantic"])
+        scores = [item["rrf_score"] for item in result["results"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_hybrid_keeps_keyword_only_hits_that_semantic_ranks_last(self):
+        self._write_bib(SEMANTIC_BIB)
+        build_index(self.root, embed=True, embedder=fake_embedder)
+
+        result = search_index(self.root, "attention", mode="hybrid", embedder=fake_embedder)
+
+        keys = [item["key"] for item in result["results"]]
+        self.assertEqual(sorted(keys), ["cheap", "gnn", "linformer"])
+        self.assertEqual(result["results"][0]["matched_by"], ["keyword", "semantic"])
+
+    def test_unknown_mode_is_rejected(self):
+        self._build_semantic()
+
+        with self.assertRaises(ValueError):
+            search_index(self.root, "attention", mode="fuzzy")
+
+    def test_limit_is_applied_after_fusion(self):
+        self._build_semantic()
+
+        result = search_index(
+            self.root, "attention", limit=2, mode="hybrid", embedder=fake_embedder
+        )
+
+        self.assertEqual(len(result["results"]), 2)
+
+
+class TestSemanticCli(LibraryTests):
+    def test_search_mode_flag_is_listed_in_help(self):
+        stdout = StringIO()
+
+        with redirect_stdout(stdout), self.assertRaises(SystemExit) as raised:
+            main(["library", "search", "--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("--mode", stdout.getvalue())
+        self.assertIn("semantic", stdout.getvalue())
+
+    def test_semantic_cli_without_vectors_is_a_tool_error(self):
+        self._write_bib(SEMANTIC_BIB)
+        with redirect_stderr(StringIO()):
+            build_index(self.root)
+        stderr = StringIO()
+
+        with redirect_stderr(stderr):
+            code = main(
+                [
+                    "library",
+                    "--dir",
+                    str(self.root),
+                    "search",
+                    "graph molecules",
+                    "--mode",
+                    "semantic",
+                ]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertIn("library index --embed", stderr.getvalue())
+
+    def test_index_help_documents_the_embed_flag(self):
+        stdout = StringIO()
+
+        with redirect_stdout(stdout), self.assertRaises(SystemExit) as raised:
+            main(["library", "index", "--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("--embed", stdout.getvalue())
 
 
 if __name__ == "__main__":

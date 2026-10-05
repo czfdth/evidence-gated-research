@@ -33,3 +33,8 @@ __pycache__/
 /runlog-migration.out.json
 /verify-all.out.json
 /ccfa-workfiles/
+# PyInstaller output for the workbench installer (app/ccfa-workbench.spec).
+# Generated, large, and never a source of truth; rebuild with
+# scripts/build-workbench.ps1.
+/build/
+/dist/

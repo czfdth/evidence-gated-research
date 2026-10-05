@@ -59,6 +59,10 @@ CLI_WRAPPERS = {
     "test_impact": "scripts/test-impact.ps1",
     "change_log": "scripts/change-log.ps1",
     "experiment_loop": "scripts/experiment-loop.ps1",
+    "experiment_optimizer": "scripts/experiment-optimize.ps1",
+    "external_adapters": "scripts/external-adapters.ps1",
+    "long_task": "scripts/long-task.ps1",
+    "skill_registry": "scripts/skill-registry.ps1",
     "post_submission": "scripts/post-submission.ps1",
     "rigor": "scripts/rigor-rubric.ps1",
     "proof_orchestrator": "scripts/proof-orchestrator.ps1",
@@ -70,6 +74,8 @@ CLI_WRAPPERS = {
     "research_state": "scripts/research-state.ps1",
     "ara_compile": "scripts/ara-compile.ps1",
     "ara_extract": "scripts/ara-extract.ps1",
+    "autoresearch": "scripts/autoresearch.ps1",
+    "claim_extract": "scripts/claim-extract.ps1",
     "reference_audit": "scripts/reference-audit.ps1",
     "repro_container": "scripts/repro-container.ps1",
     "worktree_audit": "scripts/worktree-audit.ps1",
@@ -80,6 +86,7 @@ CLI_WRAPPERS = {
     "archive_client": "scripts/archive.ps1",
     "compute": "scripts/compute.ps1",
     "skillpack": "scripts/skillpack.ps1",
+    "e2e_check": "scripts/e2e-check.ps1",
 }
 NEWPAPER_ENTRY = "tools/newpaper/create.py"
 NEWPAPER_WRAPPER = "scripts/new-paper.ps1"

@@ -203,7 +203,7 @@ Julia。其中 Agda、Why3、Sage 走 WSL（`apt` / conda-forge），检测器�
 
 注册表已经接入工作台设置与聊天面板。设置页保存前会完整验证 YAML，保存后立即重建
 当前项目的 `ToolBridge`，无需重启；任一条目非法时整份注册表拒载，界面只显示错误代码，
-不回显可能含凭据的内容。当前剩余边界是 **Windows 安装包尚未完成**。
+不回显可能含凭据的内容。Windows 自用安装包已经交付：`dist/ccfa-workbench-setup-0.1.0.exe`，安装版自带 embeddable CPython 运行时，`ccfa-workbench.exe --self-check` 已通过。
 
 ## 五、能保证与不能保证
 
@@ -243,10 +243,12 @@ Julia。其中 Agda、Why3、Sage 走 WSL（`apt` / conda-forge），检测器�
 工作流会检查 requirements、lockfile、工具版本和真实重跑，但无法替项目猜出未声明的系统依赖，
 也不能保证外部数据源、驱动、GPU 或远端服务长期不变。
 
-### P1：桌面产品尚未完成 Windows 交付
+### P2：安装版尚未在干净机器上验收
 
-自定义 HTTP 工具注册表已经可以从设置页面加载并提供给聊天模型，但 Windows launcher、
-快捷方式和 PyInstaller 安装包尚未交付。目前仍需从开发环境启动工作台。
+自定义 HTTP 工具注册表可以从设置页面加载并提供给聊天模型，Windows 自用安装包
+（PyInstaller + Inno Setup，自带 embeddable CPython 运行时）也已构建并通过
+`--self-check`。但安装版还没有在一台未装开发环境的机器上做过完整人工验收；目前的自检
+只覆盖运行时加载与 gate 依赖可导入。
 
 ### P2：复杂度和维护成本较高
 
@@ -273,7 +275,7 @@ Julia。其中 Agda、Why3、Sage 走 WSL（`apt` / conda-forge），检测器�
 | PySide6 工作台与模型聊天 | 已实现 |
 | 自定义 HTTP 工具注册表核心 | 已实现并通过定向测试 |
 | HTTP 注册表的 GUI/聊天接线 | 已实现，保存后热重载 |
-| Windows 自用安装包与快捷启动 | 待完成 |
+| Windows 自用安装包（PyInstaller + Inno Setup，含内置运行时） | 已构建并通过 --self-check，待干净机器验收 |
 | 外部签名或不可篡改审计 | 未实现，个人自用暂不作为默认范围 |
 
 当前代码规模约为 28 个 PowerShell CLI、46 个工具模块、1167 个工具侧测试函数和
@@ -327,10 +329,10 @@ HTTP 工具注册表后，运行：
 
 ## 九、下一步产品化顺序
 
-1. **交付 Windows 自用包。** 增加 launcher、快捷方式与 PyInstaller 构建，不打包 API key，
-   保留 keyring、写确认和摘要审计。
-2. **做一次真实端到端验收。** 用全新测试论文验证创建、配置 API、聊天调用只读/写入工具、
+1. **做一次真实端到端验收。** 用全新测试论文验证创建、配置 API、聊天调用只读/写入工具、
    人工确认、阶段推进、失败恢复与归档；不要改动已有论文来充当产品验收夹具。
+2. **在干净机器上验收安装版。** `dist/ccfa-workbench-setup-0.1.0.exe` 已构建，本机
+   `--self-check` 通过；剩下的是在一台未装开发环境的机器上完成安装、启动与工具调用验收。
 
 命令速查见仓库根 `README.md`；架构、gate 与接口契约见
 `docs/design/2026-10-03-research-workflow-design.md`。
