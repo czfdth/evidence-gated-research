@@ -7,7 +7,7 @@ PyYAML==6.0.3
 z3-solver==5.1.0.0
 # Second independent SMT engine: agreement between Z3 and cvc5 is stronger
 # evidence than either engine alone, and cvc5 is a small pure-pip wheel.
-cvc5==1.3.1
+cvc5==1.4.1
 # AES-256-GCM for `ccfa skillpack --encrypt`. Plain packs and verification need
 # only stdlib hashing; this dependency exists so the encrypted path is exercised
 # by tests instead of silently skipping on machines that lack it.
