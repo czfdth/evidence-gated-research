@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from ccfa_core.engines.base import ChatMessage, EngineError
+
+from . import icons, theme
 from ccfa_core.engines.codex_exec import CodexExecEngine
 from ccfa_core.engines.openai_compat import OpenAICompatibleEngine
 from ccfa_core.http_tools import HttpToolRegistry, load_registry
@@ -163,6 +165,7 @@ class ChatPanel(QWidget):
         buttons = QHBoxLayout()
         self.send_button = QPushButton("发送")
         self.send_button.setObjectName("chat_send_button")
+        self.send_button.setIcon(icons.icon("send", colour=theme.INK))
         self.send_button.clicked.connect(self.send_message)
         buttons.addWidget(self.send_button)
         self.stop_button = QPushButton("停止")

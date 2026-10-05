@@ -32,6 +32,8 @@ STATUS_COLORS = {
     "错误": PROBLEM,
     "advisory": ADVISORY,
     "警告": ADVISORY,
+    "approve": ACCENT,
+    "feedback": ADVISORY,
     "ok": OK,
     "OK": OK,
 }
@@ -79,6 +81,18 @@ def stylesheet() -> str:
         font-size: 12pt;
         font-weight: 600;
     }}
+    QLabel#appTitle {{
+        font-size: 10pt;
+        font-weight: 600;
+    }}
+    QLabel#placeholderTitle {{
+        font-size: 12pt;
+        font-weight: 600;
+        color: {INK};
+    }}
+    QLabel#placeholderHint {{
+        color: {MUTED};
+    }}
     QLabel#dialogTitle {{
         font-size: 13pt;
         font-weight: 600;
@@ -95,6 +109,11 @@ def stylesheet() -> str:
         background: #fef3f2;
         border-color: #fecdca;
         color: {PROBLEM};
+    }}
+    QLabel[role="badge"][state="advisory"] {{
+        background: #fffaeb;
+        border-color: #fedf89;
+        color: {ADVISORY};
     }}
 
     QPushButton {{
@@ -117,6 +136,40 @@ def stylesheet() -> str:
     QLabel#mono {{ font-family: {MONO}; }}
     QLabel#projectNote {{ color: {MUTED}; }}
     QLabel#statusSeparator {{ color: #d0d5dd; }}
+    QLabel#checkpoint_banner {{
+        border-radius: 6px;
+        padding: 8px 12px;
+    }}
+    QLabel#checkpoint_banner[state="pending"] {{
+        background: #fffaeb;
+        border: 1px solid #fedf89;
+        color: {ADVISORY};
+    }}
+    QLabel#checkpoint_banner[state="ok"] {{
+        background: #ecfdf3;
+        border: 1px solid #a6f4c5;
+        color: {OK};
+    }}
+    QLabel#checkpoint_banner[state="muted"] {{
+        background: #f2f4f7;
+        border: 1px solid {LINE};
+        color: {MUTED};
+    }}
+    QFrame#checkpointCard {{
+        background: {PANEL};
+        border: 1px solid {LINE};
+        border-radius: 6px;
+    }}
+    QScrollArea#checkpoint_scroll {{ background: transparent; border: none; }}
+    QWidget#checkpoint_container {{ background: transparent; }}
+    QLabel#checkpointQuestion {{
+        font-size: 10pt;
+    }}
+    QLabel#checkpointMeta {{
+        color: {MUTED};
+        font-family: {MONO};
+        font-size: 8pt;
+    }}
 
     QListWidget {{
         background: {PANEL};
@@ -129,9 +182,13 @@ def stylesheet() -> str:
         padding: 5px 6px;
         border-radius: 4px;
     }}
+    QListWidget::item:hover {{
+        background: #f4f5f7;
+    }}
     QListWidget::item:selected {{
-        background: #e8f0fe;
+        background: #eef1ff;
         color: {INK};
+        border-left: 2px solid {ACCENT};
     }}
 
     QTableWidget {{
@@ -149,6 +206,7 @@ def stylesheet() -> str:
         font-weight: 600;
     }}
     QTableWidget::item:selected {{ background: #e8f0fe; color: {INK}; }}
+    QTableWidget::item:hover {{ background: #f8f9fb; }}
 
     QPlainTextEdit, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
         background: {PANEL};
@@ -177,4 +235,21 @@ def stylesheet() -> str:
     QStatusBar {{ background: {PANEL}; border-top: 1px solid {LINE}; }}
     QSplitter::handle {{ background: {CANVAS}; }}
     QSplitter::handle:horizontal {{ width: 8px; }}
+    QScrollBar:vertical {{
+        background: transparent;
+        width: 10px;
+        margin: 0;
+    }}
+    QScrollBar::handle:vertical {{
+        background: #d0d5dd;
+        border-radius: 5px;
+        min-height: 24px;
+    }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0;
+        width: 0;
+    }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
     """

@@ -135,6 +135,8 @@ scripts/research-ledgers.ps1 --paper-root $paper
 
 它检查 claim→proof/experiment/figure/citation/assumption/limitation 的链接，
 以及 venue checklist、artifact provenance、探索图、成本账本和风险登记册。
+`artifact-provenance.yaml` 可选 `depends_on` 边：`advisory` 表示静态推断，
+`verified` 必须指向真实存在的证据文件；悬空引用和依赖环都会 fail closed。
 
 ## 5. 阶段操作表
 

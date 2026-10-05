@@ -48,6 +48,25 @@ is not covered by any log entry. Do not bypass this check by deleting or
 rewriting old entries. Never write a log that claims a test or human review was
 completed when it was not.
 
+## CI Compile List And Modules Move Together
+
+The "Compile core modules" `py_compile` list in
+`.github/workflows/tests.yml`, and `CCFA_WRAPPERS` in
+`tools/tests/test_scripts.py`, are inventories of the workflow's console
+modules. Both must be updated **in the same commit** that adds, renames, or
+removes a `tools/ccfa/*.py` module.
+
+Never land a commit where an inventory names a path that does not exist yet, or
+still names a path that was deleted. The first case fails CI at "Compile core
+modules"; the second fails the wrapper-inventory test. Landing the list before
+the file is exactly what turned a green pipeline red during parallel work:
+`repro_container.py` was listed in `tests.yml` one commit before the file
+existed.
+
+`test_ci_compile_list_paths_exist` in
+`tools/tests/test_github_workflows.py` asserts every listed path is present, so
+this ordering mistake is caught by the suite instead of by a red CI email.
+
 ## Scope Boundary
 
 - `papers/<slug>/` is a separate paper repository and is not logged here.

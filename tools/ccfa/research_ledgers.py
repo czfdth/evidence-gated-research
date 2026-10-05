@@ -61,6 +61,8 @@ VENUE_ITEM_FIELDS = ("id", "requirement", "status", "evidence", "owner")
 VENUE_STATUSES = {"complete", "pending", "not-applicable", "blocked"}
 ARTIFACT_FIELDS = ("id", "path", "decided_by", "source")
 DECIDED_BY = {"human", "model", "mixed"}
+DEPENDENCY_FIELDS = ("artifact_id", "authority", "evidence")
+DEPENDENCY_AUTHORITIES = {"advisory", "verified"}
 EXPLORATION_FIELDS = ("id", "kind", "summary", "claim_ids", "run_ids")
 EXPLORATION_KINDS = {"pivot", "dead-end", "rejected", "active"}
 COST_ENTRY_FIELDS = ("kind", "amount", "unit")
@@ -548,6 +550,7 @@ def _artifact_provenance(paper_root: Path, payload: dict) -> list[Problem]:
     if not isinstance(artifacts, list):
         return [problem("artifact-provenance-invalid", path, None, "artifacts 必须是数组")]
     seen: set[str] = set()
+    dependency_records: list[tuple[str, object]] = []
     for index, item in enumerate(artifacts):
         if not isinstance(item, dict):
             problems.append(problem("artifact-provenance-invalid", path, None, f"artifacts[{index}] 必须是映射"))
@@ -584,7 +587,142 @@ def _artifact_provenance(paper_root: Path, payload: dict) -> list[Problem]:
                     f"{artifact_id}: model/mixed artifact 需要 run_id 或 source_sha256",
                 )
             )
+        dependency_records.append((artifact_id, item.get("depends_on")))
+
+    graph: dict[str, list[str]] = {}
+    for artifact_id, depends_on in dependency_records:
+        dependency_ids: list[str] = []
+        if depends_on is None:
+            graph[artifact_id] = dependency_ids
+            continue
+        if not isinstance(depends_on, list):
+            problems.append(
+                problem(
+                    "artifact-provenance-dependency-invalid",
+                    path,
+                    None,
+                    f"{artifact_id}: depends_on 必须是数组",
+                )
+            )
+            graph[artifact_id] = dependency_ids
+            continue
+        for index, dependency in enumerate(depends_on):
+            if not isinstance(dependency, dict):
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-invalid",
+                        path,
+                        None,
+                        f"{artifact_id}: depends_on[{index}] 必须是映射",
+                    )
+                )
+                continue
+            missing_dependency = missing_fields(dependency, DEPENDENCY_FIELDS)
+            if missing_dependency:
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-invalid",
+                        path,
+                        None,
+                        (
+                            f"{artifact_id}: depends_on[{index}] 缺少字段: "
+                            f"{', '.join(missing_dependency)}"
+                        ),
+                    )
+                )
+                continue
+            target = dependency.get("artifact_id")
+            authority = dependency.get("authority")
+            evidence = dependency.get("evidence")
+            if not is_nonempty_str(target):
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-invalid",
+                        path,
+                        None,
+                        f"{artifact_id}: depends_on[{index}].artifact_id 必须是非空字符串",
+                    )
+                )
+                continue
+            if target not in seen:
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-missing",
+                        path,
+                        None,
+                        f"{artifact_id}: 依赖不存在的 artifact: {target}",
+                    )
+                )
+            else:
+                dependency_ids.append(target)
+            if authority not in DEPENDENCY_AUTHORITIES:
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-invalid",
+                        path,
+                        None,
+                        f"{artifact_id}: 非法 dependency authority: {authority!r}",
+                    )
+                )
+            if not is_nonempty_str(evidence):
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-evidence-missing",
+                        path,
+                        None,
+                        f"{artifact_id}: dependency 需要非空 evidence",
+                    )
+                )
+            elif authority == "verified" and not _exists_inside(paper_root, evidence):
+                problems.append(
+                    problem(
+                        "artifact-provenance-dependency-evidence-missing",
+                        path,
+                        None,
+                        (
+                            f"{artifact_id}: verified dependency 的 evidence "
+                            f"不存在: {evidence}"
+                        ),
+                    )
+                )
+        graph[artifact_id] = dependency_ids
+
+    for cycle in _dependency_cycles(graph):
+        problems.append(
+            problem(
+                "artifact-provenance-dependency-cycle",
+                path,
+                None,
+                "artifact dependency cycle: " + " -> ".join(cycle),
+            )
+        )
     return problems
+
+
+def _dependency_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
+    """Return one representative node list for each dependency cycle."""
+    cycles: list[list[str]] = []
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(node: str) -> None:
+        if node in visiting:
+            start = visiting.index(node)
+            cycle = [*visiting[start:], node]
+            if cycle not in cycles:
+                cycles.append(cycle)
+            return
+        if node in visited:
+            return
+        visiting.append(node)
+        for target in graph.get(node, []):
+            visit(target)
+        visiting.pop()
+        visited.add(node)
+
+    for node in sorted(graph):
+        visit(node)
+    return cycles
 
 
 def _exploration_graph(

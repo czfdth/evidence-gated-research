@@ -27,7 +27,16 @@ def _load_theme():
     return module
 
 
+def _load_icon_paths():
+    path = REPO_ROOT / "app" / "ccfa_gui" / "icon_paths.py"
+    spec = importlib.util.spec_from_file_location("ccfa_icon_paths", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 T = _load_theme()
+ICONS = _load_icon_paths()
 
 ACCENT = T.ACCENT
 ACCENT_HOVER = T.ACCENT_HOVER
@@ -129,6 +138,40 @@ class Svg:
             f"{esc(value)}</text>"
         )
 
+    def icon(
+        self,
+        name: str,
+        x: float,
+        y: float,
+        *,
+        size: float = 16,
+        colour: str = INK,
+    ) -> str:
+        """Draw one of the app's vector icons at (x, y)."""
+
+        body = "".join(ICONS.ICONS[name])
+        scale = size / 24
+        return (
+            f'<g transform="translate({x},{y}) scale({scale})" fill="none" '
+            f'stroke="{colour}" stroke-width="1.75" stroke-linecap="round" '
+            f'stroke-linejoin="round">{body}</g>'
+        )
+
+    def mark(self, x: float, y: float, *, size: float = 22) -> str:
+        """Draw the product mark: accent rounded square with three bars."""
+
+        bars = "".join(
+            f'<path d="M7 {8 + index * 4}h{width}" fill="none" stroke="#ffffff" '
+            f'stroke-width="1.8" stroke-linecap="round"/>'
+            for index, width in enumerate((10, 10, 6))
+        )
+        return "".join(
+            [
+                self.rect(x, y, size, size, fill=ACCENT, r=size * 6 / 24),
+                f'<g transform="translate({x},{y}) scale({size / 24})">{bars}</g>',
+            ]
+        )
+
     def render(self) -> str:
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" '
@@ -150,24 +193,36 @@ def button(
     *,
     primary: bool = False,
     h: float = 28,
+    icon_name: str | None = None,
 ) -> str:
     fill = ACCENT if primary else PANEL
     stroke = ACCENT if primary else FIELD_BORDER
     colour = "#ffffff" if primary else INK
-    return "".join(
-        [
-            svg.rect(x, y, w, h, fill=fill, stroke=stroke, r=6),
-            svg.text(
-                x + w / 2,
-                y + h / 2 + 4,
-                label,
-                size=12,
-                fill=colour,
-                weight=600 if primary else 400,
-                anchor="middle",
-            ),
-        ]
+    parts = [svg.rect(x, y, w, h, fill=fill, stroke=stroke, r=6)]
+    if icon_name:
+        parts.append(
+            svg.icon(
+                icon_name,
+                x + 9,
+                y + (h - 16) / 2,
+                size=16,
+                colour=colour,
+            )
+        )
+    parts.append(
+        svg.text(
+            # Centre the label in the space left of the icon, not in the whole
+            # button, otherwise a narrow button collides with its own icon.
+            x + (w + (25 if icon_name else 0)) / 2,
+            y + h / 2 + 4,
+            label,
+            size=12,
+            fill=colour,
+            weight=600 if primary else 400,
+            anchor="middle",
+        )
     )
+    return "".join(parts)
 
 
 def chip(svg: Svg, x: float, y: float, label: str, *, fill: str = CHIP,
@@ -185,10 +240,10 @@ def toolbar(svg: Svg, summary: str) -> None:
     parts = [
         svg.rect(0, 0, W, TOOLBAR_H, fill=PANEL),
         svg.line(0, TOOLBAR_H, W, TOOLBAR_H),
-        svg.rect(10, 6, 72, 28, fill=PANEL, stroke=FIELD_BORDER, r=6),
-        svg.text(30, 24, "刷新", size=12),
-        svg.rect(90, 6, 60, 28, fill=PANEL, stroke=FIELD_BORDER, r=6),
-        svg.text(104, 24, "设置", size=12),
+        svg.mark(10, 9),
+        svg.text(40, 25, "论文工作台", size=12, weight=600),
+        button(svg, 122, 6, 80, "刷新", icon_name="refresh"),
+        button(svg, 210, 6, 74, "设置", icon_name="settings"),
         svg.text(W - 12, 24, summary, size=12, fill=MUTED, anchor="end"),
     ]
     svg.layer("toolbar", *parts)
@@ -271,7 +326,7 @@ def chat_panel(svg: Svg, configured: bool, messages: list[tuple[str, str]] | Non
                 size=12,
                 fill=MUTED,
             ),
-            button(svg, x + 12, y + h - 42, 64, "发送", h=28),
+            button(svg, x + 12, y + h - 42, 74, "发送", h=28, icon_name="send"),
         ]
     )
     svg.layer("chat-panel", *parts)
@@ -291,7 +346,7 @@ def detail_header(
         svg.text(x + 14, y + 32, slug, size=17, fill=INK, weight=600),
         svg.text(x + 14, y + 54, note, size=12, fill=MUTED),
         svg.rect(x + w - 40, y + 12, 26, 26, fill=PANEL, stroke=FIELD_BORDER, r=6),
-        svg.text(x + w - 27, y + 30, "▣", size=13, fill=ACCENT, anchor="middle"),
+        svg.icon("folder", x + w - 35, y + 17, size=16, colour=MUTED),
     ]
     chip_x = x + 14
     for index, (label, is_problem) in enumerate(badges):
@@ -308,8 +363,23 @@ def detail_header(
 def action_row(svg: Svg, summary: str, summary_colour: str, *, wide: bool = False) -> None:
     y = BODY_Y + 104
     parts = [
-        button(svg, DETAIL_X, y, 104, "运行 validate", primary=True),
-        button(svg, DETAIL_X + 112, y, 122, "运行 milestones"),
+        button(
+            svg,
+            DETAIL_X,
+            y,
+            118,
+            "运行 validate",
+            primary=True,
+            icon_name="validate",
+        ),
+        button(
+            svg,
+            DETAIL_X + 126,
+            y,
+            138,
+            "运行 milestones",
+            icon_name="milestones",
+        ),
         svg.text(
             DETAIL_X + (DETAIL_W if not wide else DETAIL_W) - 4,
             y + 19,
@@ -401,6 +471,7 @@ def screen_empty() -> str:
     svg = Svg(W, H)
     toolbar(svg, "papers/ 下没有项目")
     project_list(svg, [], -1)
+    center = DETAIL_X + DETAIL_W / 2
     svg.layer(
         "detail-empty",
         svg.rect(DETAIL_X, BODY_Y, DETAIL_W, 96, fill=PANEL, stroke=LINE, r=6),
@@ -421,21 +492,37 @@ def screen_empty() -> str:
             stroke=LINE,
             r=6,
         ),
-        svg.text(DETAIL_X + 14, BODY_Y + 132, "还没有论文项目", size=13, weight=600),
+        svg.icon(
+            "inbox",
+            center - 22,
+            BODY_Y + 268,
+            size=44,
+            colour="#c9c9d1",
+        ),
         svg.text(
-            DETAIL_X + 14,
-            BODY_Y + 156,
+            center,
+            BODY_Y + 356,
+            "还没有论文项目",
+            size=13,
+            weight=600,
+            anchor="middle",
+        ),
+        svg.text(
+            center,
+            BODY_Y + 382,
             "scripts/new-paper.ps1 my-paper --venue NeurIPS --year 2027 --mode conference",
             size=12,
             fill=MUTED,
             family=MONO,
+            anchor="middle",
         ),
         svg.text(
-            DETAIL_X + 14,
-            BODY_Y + 180,
-            "创建后点「刷新」即可在这里看到它。",
+            center,
+            BODY_Y + 404,
+            "创建第一篇后点「刷新」即可在这里看到它。",
             size=12,
             fill=MUTED,
+            anchor="middle",
         ),
     )
     chat_panel(svg, configured=False)

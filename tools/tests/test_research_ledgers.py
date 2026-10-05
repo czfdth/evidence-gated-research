@@ -388,6 +388,125 @@ class ResearchLedgerTests(unittest.TestCase):
             self._codes(problems),
         )
 
+    def test_advisory_artifact_dependency_is_valid(self):
+        provenance = yaml.safe_load(
+            (self.root / "data" / "artifact-provenance.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        provenance["artifacts"].append(
+            {
+                "id": "derived",
+                "path": "data/claim-registry.yaml",
+                "decided_by": "human",
+                "source": "derived table",
+                "model_family": None,
+                "depends_on": [
+                    {
+                        "artifact_id": "matrix",
+                        "authority": "advisory",
+                        "evidence": "static script inspection",
+                    }
+                ],
+            }
+        )
+        self._write("data/artifact-provenance.yaml", provenance)
+
+        problems, _advisories = check(self.root, require_core=True)
+
+        self.assertEqual(problems, [])
+
+    def test_artifact_dependency_must_reference_existing_artifact(self):
+        provenance = yaml.safe_load(
+            (self.root / "data" / "artifact-provenance.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        provenance["artifacts"][0]["depends_on"] = [
+            {
+                "artifact_id": "missing",
+                "authority": "advisory",
+                "evidence": "static script inspection",
+            }
+        ]
+        self._write("data/artifact-provenance.yaml", provenance)
+
+        problems, _advisories = check(self.root, require_core=True)
+
+        self.assertIn(
+            "artifact-provenance-dependency-missing",
+            self._codes(problems),
+        )
+
+    def test_verified_dependency_requires_existing_evidence(self):
+        provenance = yaml.safe_load(
+            (self.root / "data" / "artifact-provenance.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        provenance["artifacts"].append(
+            {
+                "id": "derived",
+                "path": "data/claim-registry.yaml",
+                "decided_by": "human",
+                "source": "derived table",
+                "model_family": None,
+                "depends_on": [
+                    {
+                        "artifact_id": "matrix",
+                        "authority": "verified",
+                        "evidence": "data/missing-runtime-trace.json",
+                    }
+                ],
+            }
+        )
+        self._write("data/artifact-provenance.yaml", provenance)
+
+        problems, _advisories = check(self.root, require_core=True)
+
+        self.assertIn(
+            "artifact-provenance-dependency-evidence-missing",
+            self._codes(problems),
+        )
+
+    def test_artifact_dependency_cycle_is_rejected(self):
+        provenance = yaml.safe_load(
+            (self.root / "data" / "artifact-provenance.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        provenance["artifacts"][0]["depends_on"] = [
+            {
+                "artifact_id": "derived",
+                "authority": "advisory",
+                "evidence": "static script inspection",
+            }
+        ]
+        provenance["artifacts"].append(
+            {
+                "id": "derived",
+                "path": "data/claim-registry.yaml",
+                "decided_by": "human",
+                "source": "derived table",
+                "model_family": None,
+                "depends_on": [
+                    {
+                        "artifact_id": "matrix",
+                        "authority": "advisory",
+                        "evidence": "static script inspection",
+                    }
+                ],
+            }
+        )
+        self._write("data/artifact-provenance.yaml", provenance)
+
+        problems, _advisories = check(self.root, require_core=True)
+
+        self.assertIn(
+            "artifact-provenance-dependency-cycle",
+            self._codes(problems),
+        )
+
     def test_dead_end_requires_rationale(self):
         graph = yaml.safe_load(
             (self.root / "data" / "exploration-graph.yaml").read_text(

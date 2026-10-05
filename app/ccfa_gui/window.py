@@ -17,23 +17,29 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
-    QStyle,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from ccfa_core.checks import CheckError, run_milestones_due, run_validate
+from ccfa_core.checks import (
+    CheckError,
+    run_milestones_due,
+    run_validate,
+)
+from ccfa_core.checks import run_checkpoints as load_checkpoints
 from ccfa_core.projects import ProjectError, find_projects, load_project
 from ccfa_core.secrets import KeyringSecretStore, SecretStoreUnavailable
 from ccfa_core.settings import default_settings_path, load_settings
 
 from .chat_panel import ChatPanel
 from .settings_dialog import SettingsDialog
-from . import theme
+from . import icons, theme
 
 _SHARED_LIBRARY_DIR = Path(__file__).resolve().parents[2] / "library"
 
@@ -155,17 +161,25 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(8, 4, 8, 4)
         row.setSpacing(6)
 
+        self.app_mark = QLabel()
+        self.app_mark.setObjectName("appMark")
+        self.app_mark.setPixmap(icons.app_mark(22))
+        row.addWidget(self.app_mark)
+        self.app_title = QLabel("论文工作台")
+        self.app_title.setObjectName("appTitle")
+        row.addWidget(self.app_title)
+        row.addSpacing(10)
+
         self.refresh_button = QPushButton("刷新")
         self.refresh_button.setObjectName("refresh_button")
-        self.refresh_button.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
+        self.refresh_button.setIcon(icons.icon("refresh", colour=theme.INK))
         self.refresh_button.setToolTip("重新扫描 papers/ 下的项目")
         self.refresh_button.clicked.connect(self.refresh_projects)
         row.addWidget(self.refresh_button)
 
         self.settings_button = QPushButton("设置")
         self.settings_button.setObjectName("settings_button")
+        self.settings_button.setIcon(icons.icon("settings", colour=theme.INK))
         self.settings_button.setToolTip("provider、密钥与工作流目录")
         self.settings_button.clicked.connect(self.open_settings)
         row.addWidget(self.settings_button)
@@ -214,9 +228,7 @@ class MainWindow(QMainWindow):
         title_row.addStretch(1)
         self.open_dir_button = QPushButton()
         self.open_dir_button.setObjectName("open_dir_button")
-        self.open_dir_button.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
-        )
+        self.open_dir_button.setIcon(icons.icon("folder", colour=theme.MUTED))
         self.open_dir_button.setToolTip("在文件管理器中打开项目目录")
         self.open_dir_button.setFixedSize(26, 26)
         self.open_dir_button.setEnabled(False)
@@ -248,20 +260,40 @@ class MainWindow(QMainWindow):
         self.validate_button = QPushButton("运行 validate")
         self.validate_button.setObjectName("validate_button")
         self.validate_button.setProperty("role", "primary")
+        self.validate_button.setIcon(icons.icon("validate", colour="#ffffff"))
         self.validate_button.setToolTip("校验当前项目的 ccfa.yaml")
         self.validate_button.clicked.connect(self.run_validate)
         actions.addWidget(self.validate_button)
         self.milestones_button = QPushButton("运行 milestones")
         self.milestones_button.setObjectName("milestones_button")
+        self.milestones_button.setIcon(icons.icon("milestones", colour=theme.INK))
         self.milestones_button.setToolTip("检查倒排里程碑与到期项")
         self.milestones_button.clicked.connect(self.run_milestones)
         actions.addWidget(self.milestones_button)
+        self.checkpoints_button = QPushButton("待人工复核")
+        self.checkpoints_button.setObjectName("checkpoints_button")
+        self.checkpoints_button.setIcon(icons.icon("checkpoints", colour=theme.INK))
+        self.checkpoints_button.setToolTip(
+            "读出 readiness 的人工复核队列：要判断什么、写进哪个台账"
+        )
+        self.checkpoints_button.clicked.connect(self.run_checkpoints)
+        actions.addWidget(self.checkpoints_button)
         actions.addStretch(1)
         self.results_summary = QLabel("尚未运行检查")
         self.results_summary.setObjectName("results_summary")
         self.results_summary.setProperty("role", "hint")
         actions.addWidget(self.results_summary)
         column.addLayout(actions)
+
+        self.checkpoint_banner = QLabel("")
+        self.checkpoint_banner.setObjectName("checkpoint_banner")
+        self.checkpoint_banner.setWordWrap(True)
+        self.checkpoint_banner.setVisible(False)
+        column.addWidget(self.checkpoint_banner)
+
+        # Two ways to show the same pane: check results (table) and the human
+        # decision queue (cards). A stack keeps each one's layout honest.
+        self.detail_stack = QStackedWidget()
 
         self.results_table = QTableWidget(0, 3)
         self.results_table.setObjectName("results_table")
@@ -277,7 +309,44 @@ class MainWindow(QMainWindow):
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        column.addWidget(self.results_table, stretch=1)
+        self.detail_stack.addWidget(self.results_table)
+
+        self.checkpoint_scroll = QScrollArea()
+        self.checkpoint_scroll.setObjectName("checkpoint_scroll")
+        self.checkpoint_scroll.setWidgetResizable(True)
+        self.checkpoint_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.checkpoint_container = QWidget()
+        self.checkpoint_container.setObjectName("checkpoint_container")
+        self.checkpoint_layout = QVBoxLayout(self.checkpoint_container)
+        self.checkpoint_layout.setContentsMargins(0, 0, 0, 0)
+        self.checkpoint_layout.setSpacing(8)
+        self.checkpoint_layout.addStretch(1)
+        self.checkpoint_scroll.setWidget(self.checkpoint_container)
+        self.detail_stack.addWidget(self.checkpoint_scroll)
+
+        self.placeholder = QWidget()
+        placeholder_layout = QVBoxLayout(self.placeholder)
+        placeholder_layout.setContentsMargins(24, 24, 24, 24)
+        placeholder_layout.setSpacing(8)
+        placeholder_layout.addStretch(1)
+        self.placeholder_icon = QLabel()
+        self.placeholder_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_layout.addWidget(self.placeholder_icon)
+        self.placeholder_title = QLabel("")
+        self.placeholder_title.setObjectName("placeholderTitle")
+        self.placeholder_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_layout.addWidget(self.placeholder_title)
+        self.placeholder_hint = QLabel("")
+        self.placeholder_hint.setObjectName("placeholderHint")
+        self.placeholder_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder_hint.setWordWrap(True)
+        placeholder_layout.addWidget(self.placeholder_hint)
+        placeholder_layout.addStretch(1)
+        self.detail_stack.addWidget(self.placeholder)
+
+        self.detail_stack.setCurrentIndex(0)
+        self._checkpoint_cards: list[QFrame] = []
+        column.addWidget(self.detail_stack, stretch=1)
         panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
@@ -307,6 +376,7 @@ class MainWindow(QMainWindow):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _set_results(self, rows) -> None:
+        self.detail_stack.setCurrentIndex(0)
         self.results_table.setRowCount(0)
         actionable = 0
         for source, code, message in rows:
@@ -361,6 +431,22 @@ class MainWindow(QMainWindow):
         self._set_badge(self.stage_label, "")
         self._set_badge(self.gate_label, "")
         self._set_badge(self.deadline_label, "")
+
+    def _show_placeholder(
+        self,
+        title: str,
+        hint: str,
+        *,
+        icon_name: str = "inbox",
+    ) -> None:
+        """Empty state for the detail pane: icon, one line, then the hint."""
+
+        self.placeholder_icon.setPixmap(
+            icons.pixmap(icon_name, colour="#c9c9d1", size=44)
+        )
+        self.placeholder_title.setText(title)
+        self.placeholder_hint.setText(hint)
+        self.detail_stack.setCurrentIndex(2)
 
     def _show_project_error(self, slug: str, error: str) -> None:
         """Show a broken project without spilling a traceback across the header."""
@@ -417,13 +503,24 @@ class MainWindow(QMainWindow):
         else:
             self._clear_stage_panel()
             self._set_results([])
+            self._show_placeholder(
+                "还没有论文项目",
+                "在仓库根运行 scripts/new-paper.ps1 my-paper --venue NeurIPS "
+                "--year 2027 --mode conference 创建第一篇，然后点「刷新」。",
+            )
             self.chat_panel.set_project(None)
 
     def _on_project_selected(self, _current, _previous) -> None:
         ref = self._selected_ref()
         self._set_results([])
+        self._hide_checkpoint_banner()
+        self._clear_checkpoint_cards()
         if ref is None:
             self._clear_stage_panel()
+            self._show_placeholder(
+                "未选择项目",
+                "从左侧选择一个项目查看阶段、门禁与检查结果。",
+            )
             self.chat_panel.set_project(None)
             return
         self.open_dir_button.setEnabled(True)
@@ -458,6 +555,7 @@ class MainWindow(QMainWindow):
         return ref.error
 
     def run_validate(self) -> None:
+        self._hide_checkpoint_banner()
         error = self._selected_project_error()
         if error:
             self._set_results([("validate", "错误", error)])
@@ -474,6 +572,7 @@ class MainWindow(QMainWindow):
         self._set_results(rows)
 
     def run_milestones(self) -> None:
+        self._hide_checkpoint_banner()
         error = self._selected_project_error()
         if error:
             self._set_results([("milestones", "错误", error)])
@@ -505,17 +604,159 @@ class MainWindow(QMainWindow):
                 rows.append(("milestones", "problem", str(problem)))
         self._set_results(rows)
 
+    def _hide_checkpoint_banner(self) -> None:
+        self.checkpoint_banner.setVisible(False)
+
+    def _show_checkpoint_banner(self, status: str, count: int) -> None:
+        if status == "pending-human-review":
+            state = "pending"
+            text = (
+                f"待人工复核：{count} 项。脚本只能证明它还没被回答，不能替你回答。"
+            )
+        elif status == "human-attested":
+            state = "ok"
+            text = "人工复核账本已完成，没有待办。"
+        else:
+            state = "muted"
+            text = f"当前 profile 不要求人工复核（status={status}）。"
+        self.checkpoint_banner.setText(text)
+        self.checkpoint_banner.setProperty("state", state)
+        self.checkpoint_banner.style().unpolish(self.checkpoint_banner)
+        self.checkpoint_banner.style().polish(self.checkpoint_banner)
+        self.checkpoint_banner.setVisible(True)
+
+    def run_checkpoints(self) -> None:
+        ref = self._selected_ref()
+        if ref is None or ref.error:
+            self._hide_checkpoint_banner()
+            self._clear_checkpoint_cards()
+            self._set_results([("readiness", "错误", "先选择一个可读取的项目")])
+            return
+        try:
+            result = load_checkpoints(ref.dir)
+        except CheckError as exc:
+            self._hide_checkpoint_banner()
+            self._clear_checkpoint_cards()
+            self._set_results([("readiness", "错误", str(exc))])
+            return
+        human = (result.report or {}).get("human_review")
+        human = human if isinstance(human, dict) else {}
+        checkpoints = [
+            item
+            for item in human.get("checkpoints", [])
+            if isinstance(item, dict)
+        ]
+        self._clear_checkpoint_cards()
+        if checkpoints:
+            for item in checkpoints:
+                self._add_checkpoint_card(item)
+            self.detail_stack.setCurrentIndex(1)
+            self.results_summary.setText(f"{len(checkpoints)} 项待人工")
+            self.results_summary.setStyleSheet(f"color: {theme.PROBLEM};")
+        else:
+            self._set_results(
+                [("readiness", "OK", "当前没有待人工复核项")]
+            )
+        self._show_checkpoint_banner(
+            str(human.get("status", "unknown")),
+            len(checkpoints),
+        )
+
+    def checkpoint_card_count(self) -> int:
+        return len(self._checkpoint_cards)
+
+    def _clear_checkpoint_cards(self) -> None:
+        while self.checkpoint_layout.count() > 1:
+            item = self.checkpoint_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._checkpoint_cards = []
+
+    def _add_checkpoint_card(self, checkpoint: dict) -> None:
+        card = QFrame()
+        card.setObjectName("checkpointCard")
+        body = QVBoxLayout(card)
+        body.setContentsMargins(12, 10, 12, 10)
+        body.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        kind = str(checkpoint.get("type") or "review")
+        chip = QLabel(kind)
+        chip.setProperty("role", "badge")
+        if kind == "feedback":
+            chip.setProperty("state", "advisory")
+        top.addWidget(chip)
+        top.addStretch(1)
+        ledger = str(checkpoint.get("ledger") or "")
+        open_button = QPushButton("打开台账")
+        open_button.setObjectName("open_ledger_button")
+        open_button.setEnabled(bool(ledger))
+        open_button.setToolTip(f"打开 {ledger}" if ledger else "该 checkpoint 没有指定台账")
+        open_button.clicked.connect(
+            lambda _checked=False, target=ledger: self._open_ledger(target)
+        )
+        top.addWidget(open_button)
+        body.addLayout(top)
+
+        question = QLabel(
+            str(checkpoint.get("question") or checkpoint.get("id") or "待人工复核")
+        )
+        question.setObjectName("checkpointQuestion")
+        question.setWordWrap(True)
+        body.addWidget(question)
+
+        meta_text = " — ".join(
+            part
+            for part in (ledger, str(checkpoint.get("answer_with") or ""))
+            if part
+        )
+        meta = QLabel(meta_text)
+        meta.setObjectName("checkpointMeta")
+        meta.setWordWrap(True)
+        body.addWidget(meta)
+
+        self.checkpoint_layout.insertWidget(
+            self.checkpoint_layout.count() - 1,
+            card,
+        )
+        self._checkpoint_cards.append(card)
+
+    def _open_ledger(self, relative: str) -> None:
+        ref = self._selected_ref()
+        if ref is None or not relative:
+            return
+        project_root = Path(ref.dir).resolve()
+        target = (project_root / relative).resolve()
+        # The ledger path comes from the workflow's JSON: never leave the
+        # project directory because of it.
+        if project_root not in target.parents and target != project_root:
+            return
+        if target.is_file() or target.is_dir():
+            opened = target
+        else:
+            # The ledger does not exist yet: open the nearest existing ancestor
+            # so the user can create it, never a path outside the project.
+            opened = target.parent
+            while not opened.exists() and project_root in opened.parents:
+                opened = opened.parent
+            if not opened.exists():
+                opened = project_root
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(opened)))
+
     def _update_credential_status(self) -> None:
         try:
             self._secret_store.get("__ccfa_status_probe__")
         except SecretStoreUnavailable:
-            self.credential_label.setText("凭据不可用")
+            self.credential_label.setText("● 凭据不可用")
             self.credential_label.setToolTip(
                 "系统密钥环不可访问，API key 无法保存或读取"
             )
             self.credential_label.setStyleSheet(f"color: {theme.PROBLEM};")
         else:
-            self.credential_label.setText("凭据可用")
+            self.credential_label.setText("● 凭据可用")
             self.credential_label.setToolTip("系统密钥环可读写")
             self.credential_label.setStyleSheet(f"color: {theme.OK};")
         try:

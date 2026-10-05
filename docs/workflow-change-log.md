@@ -350,3 +350,120 @@ rewrite historical entries.
 - tests:
   - `tools.tests.test_citation_calibration`
 
+## WC-20261005T171719Z-462141832f - Turn cross-review failures into an actionable checkpoint
+
+- timestamp: `2026-10-05T17:17:19Z`
+- status: `complete`
+- author: `codex`
+- reason: Readiness reported cross-review as a bare gate failure; it now names the required action: configure a verifiable gate-capable cross-family provider or complete an external human review with evidence.
+- files:
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `tools.tests.test_readiness`
+
+## WC-20261005T171750Z-7feb7aa905 - Wire the human-checkpoint queue into the workbench: readiness gains --checkpoints-only and the app gets a 待人工复核 button with a status banner.
+
+- timestamp: `2026-10-05T17:17:50Z`
+- status: `complete`
+- author: `codex`
+- reason: 设计稿 04-human-checkpoints 只停留在模拟图。工作台要能回答'现在有哪些事只有人能决定、答案写哪里'，但完整 readiness 会跑 20+ 个 gate，不适合点一下就等。
+- files:
+  - `app/README.md`
+  - `app/ccfa_core/checks.py`
+  - `app/ccfa_gui/theme.py`
+  - `app/ccfa_gui/window.py`
+  - `app/tests/test_checks.py`
+  - `app/tests/test_gui_smoke.py`
+  - `docs/design/2026-10-06-workbench-ui-spec.md`
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `app unittest discover (207 tests)`
+  - `ruff check app tools`
+  - `tools.tests.test_readiness (47 tests)`
+- notes: 实测：真实 app 点按钮走 ccfa.readiness --checkpoints-only，表格列出 4 条 checkpoint，横幅显示待人工复核。
+
+## WC-20261005T171917Z-ce5fc363e9 - Reject duplicate citation calibration ids
+
+- timestamp: `2026-10-05T17:19:17Z`
+- status: `complete`
+- author: `codex`
+- reason: Duplicate JSONL ids silently overwrote earlier rows, allowing a calibration set to lose samples without any visible failure.
+- files:
+  - `tools/ccfa/citation_calibration.py`
+  - `tools/tests/test_citation_calibration.py`
+- tests:
+  - `tools.tests.test_citation_calibration`
+
+## WC-20261005T172224Z-b23ba49ddd - Render the human-checkpoint queue as cards with an 打开台账 action instead of table rows.
+
+- timestamp: `2026-10-05T17:22:24Z`
+- status: `complete`
+- author: `codex`
+- reason: 表格形态放不下问题原文与台账说明，也没有直接跳到要写的文件的入口；设计稿 04 本来就是卡片。
+- files:
+  - `app/README.md`
+  - `app/ccfa_gui/theme.py`
+  - `app/ccfa_gui/window.py`
+  - `app/tests/test_gui_smoke.py`
+  - `docs/design/2026-10-06-workbench-ui-spec.md`
+- tests:
+  - `app unittest discover (208 tests)`
+  - `ruff check app`
+- notes: 打开台账做了路径约束：解析后的目标必须留在项目目录内，文件不存在时打开最近的已存在祖先目录。
+
+## WC-20261005T173212Z-932a491227 - Align artifact dependency edges with advisory and verified semantics
+
+- timestamp: `2026-10-05T17:32:12Z`
+- status: `complete`
+- author: `codex`
+- reason: Adopt the useful part of open-science's provenance graph without overclaiming: static dependencies stay advisory, verified edges require existing evidence, dangling links fail, and cycles are rejected.
+- files:
+  - `README.md`
+  - `docs/workflow-deficiency-checklist-2026-10-06.md`
+  - `docs/workflow-guide.md`
+  - `tools/ccfa/research_ledgers.py`
+  - `tools/tests/test_research_ledgers.py`
+- tests:
+  - `tools.tests.test_docs_consistency`
+  - `tools.tests.test_research_ledgers`
+
+## WC-20261005T173552Z-2c2b7f6189 - Polish the workbench chrome: shared vector icon set, product mark, empty state, selected-row accent, transparent icon pixmaps.
+
+- timestamp: `2026-10-05T17:35:52Z`
+- status: `complete`
+- author: `codex`
+- reason: 用户要求设计好看的 UI。原来的 chrome 用 Qt 自带图标（蓝色文件夹/刷新箭头），和整套配色不搭；空列表时中栏是一张空表；图标 pixmap 用 QPixmap.fill() 默认填了白色，在主按钮上显示成白方块。
+- files:
+  - `app/README.md`
+  - `app/ccfa_gui/chat_panel.py`
+  - `app/ccfa_gui/icon_paths.py`
+  - `app/ccfa_gui/icons.py`
+  - `app/ccfa_gui/theme.py`
+  - `app/ccfa_gui/window.py`
+  - `app/tests/test_gui_smoke.py`
+  - `docs/design/2026-10-06-workbench-ui-spec.md`
+  - `docs/design/exports/01-workbench-empty.svg`
+  - `docs/design/exports/02-workbench-project.svg`
+  - `docs/design/exports/03-workbench-blocked.svg`
+  - `docs/design/exports/04-human-checkpoints.svg`
+  - `docs/design/exports/05-settings-dialog.svg`
+  - `docs/design/generate_mockups.py`
+- tests:
+  - `app unittest discover (209 tests)`
+  - `ruff check app`
+- notes: 实测截图确认：工具栏标记+图标、侧栏选中主色条、状态栏圆点、空白状态占位。
+
+## WC-20261005T173725Z-5f27688374 - Require the CI compile list and its modules to move in one commit
+
+- timestamp: `2026-10-05T17:37:25Z`
+- status: `complete`
+- author: `codex`
+- reason: A parallel commit listed tools/ccfa/repro_container.py in tests.yml py_compile before the file existed, which failed CI at Compile core modules. The engineering contract now states the rule and a guard test asserts every listed path exists.
+- files:
+  - `AGENTS.md`
+  - `tools/tests/test_github_workflows.py`
+- tests:
+  - `tools.tests.test_github_workflows`
+

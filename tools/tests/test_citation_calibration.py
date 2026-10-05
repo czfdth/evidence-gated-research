@@ -68,6 +68,19 @@ class CitationCalibrationTests(unittest.TestCase):
         self.assertEqual(report["error"], "gold-set-empty")
         self.assertFalse(report["threshold_pass"])
 
+    def test_duplicate_id_is_rejected(self):
+        self._write(
+            self.gold,
+            [
+                {"id": "1", "label": "supported"},
+                {"id": "1", "label": "unsupported"},
+            ],
+        )
+        self._write(self.predictions, [])
+
+        with self.assertRaisesRegex(ValueError, "重复 id"):
+            calibrate(self.gold, self.predictions)
+
 
 if __name__ == "__main__":
     unittest.main()

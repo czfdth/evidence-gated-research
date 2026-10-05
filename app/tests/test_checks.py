@@ -12,6 +12,7 @@ import yaml
 from ccfa_core.checks import (
     CheckError,
     CheckResult,
+    run_checkpoints,
     run_milestones_due,
     run_validate,
 )
@@ -61,6 +62,37 @@ class CheckTests(unittest.TestCase):
             run_validate(project_dir)
 
         self.assertIn("validate", str(caught.exception))
+
+    def test_run_checkpoints_returns_the_pending_human_queue(self):
+        project_dir = write_project(self.root, "demo")
+        path = project_dir / "ccfa.yaml"
+        state = yaml.safe_load(path.read_text(encoding="utf-8"))
+        state["workflow"] = {"profile": "high-assurance"}
+        path.write_text(
+            yaml.safe_dump(state, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        data = project_dir / "data"
+        data.mkdir(exist_ok=True)
+        (data / "proof-audit.yaml").write_text(
+            "version: 1\nstatus: pending-human-review\nreviews: []\n",
+            encoding="utf-8",
+        )
+
+        result = run_checkpoints(project_dir)
+
+        self.assertEqual(result.name, "checkpoints")
+        self.assertFalse(result.ok)
+        ids = [
+            item.get("id")
+            for item in result.problems
+            if isinstance(item, dict)
+        ]
+        self.assertIn("proof", ids)
+        self.assertEqual(
+            result.report["human_review"]["status"],
+            "pending-human-review",
+        )
 
     def test_run_milestones_due_sequential_report(self):
         project_dir = write_project(self.root, "demo")

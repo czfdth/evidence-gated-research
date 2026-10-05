@@ -32,7 +32,7 @@ This checklist turns the live GitHub comparison into explicit work items.
 | P2-2 | Desktop packaging | Partially addressed by existing workbench work | Packaging scripts exist in the workbench track; this checklist does not duplicate them |
 | P2-3 | Too many tools increases maintenance | Controlled but not reduced | New change-log and worktree-audit checks make changes visible; consolidation is still a future cleanup task |
 | P2-4 | Live artifact badge and DOI evidence absent | Blocked on external archive | `artifact-badge` and `artifact-store` exist; third-party evaluated/reusable evidence and DOI must be obtained |
-| P2-5 | open-science added advisory cross-language artifact dependency edges | Recorded, not yet aligned | See `docs/reference-drift-2026-10-06.md`; do not turn an inferred dependency into verified provenance without runtime file evidence |
+| P2-5 | open-science added advisory cross-language artifact dependency edges | Ledger-level aligned | `artifact-provenance.yaml` now supports `depends_on` edges with explicit `authority: advisory` or `verified`; `verified` requires existing evidence, unknown targets fail, and cycles are rejected. Runtime file-read observation remains out of scope |
 
 ## Current Non-Goals
 

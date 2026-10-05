@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 import unittest
@@ -450,6 +451,25 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(human["pending"], ["proof"])
         self.assertEqual(human["checkpoints"][0]["id"], "proof")
 
+    def test_cross_review_failure_has_an_actionable_checkpoint(self):
+        human = readiness._human_review_status(
+            self.paper_root,
+            "standard",
+            [
+                {
+                    "name": "cross-review",
+                    "problems": [
+                        {"code": "review-provider-config-drift"},
+                        {"code": "review-blocking"},
+                    ]
+                }
+            ],
+        )
+
+        self.assertEqual(human["pending"], ["cross-review"])
+        self.assertEqual(human["checkpoints"][0]["id"], "cross-review")
+        self.assertIn("跨族", human["checkpoints"][0]["question"])
+
     def test_high_assurance_defaults_to_submission_assurance(self):
         self._touch_ledgers(["novelty"])
         self._write_state("workflow:\n  profile: high-assurance\n")
@@ -464,6 +484,36 @@ class ReadinessTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             build_report(self.paper_root)
+
+    def test_checkpoints_only_returns_the_human_queue_without_running_gates(self):
+        self._write_state("workflow:\n  profile: high-assurance\n")
+        data = self.paper_root / "data"
+        data.mkdir()
+        (data / "proof-audit.yaml").write_text(
+            "version: 1\nstatus: pending-human-review\nreviews: []\n",
+            encoding="utf-8",
+        )
+        stream = StringIO()
+
+        with redirect_stdout(stream):
+            code = main(
+                [
+                    "readiness",
+                    "--paper-root",
+                    str(self.paper_root),
+                    "--checkpoints-only",
+                ]
+            )
+
+        payload = json.loads(stream.getvalue())
+        self.assertEqual(code, 0)
+        self.assertNotIn("gate_results", payload)
+        self.assertEqual(payload["audit_profile"], "high-assurance")
+        self.assertEqual(payload["human_review"]["status"], "pending-human-review")
+        by_id = {item["id"]: item for item in payload["human_review"]["checkpoints"]}
+        self.assertIn("proof", by_id)
+        self.assertTrue(by_id["proof"]["question"])
+        self.assertEqual(by_id["proof"]["ledger"], "data/proof-audit.yaml")
 
     def test_git_remote_and_workflow_status_are_reported(self):
         subprocess.run(["git", "init"], cwd=self.paper_root, check=True, capture_output=True)

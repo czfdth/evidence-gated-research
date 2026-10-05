@@ -3,13 +3,15 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 
+from ccfa_core.checks import CheckResult
 from ccfa_core.secrets import SecretStoreUnavailable
 from ccfa_core.settings import ProviderSettings, Settings, save_settings
 from ccfa_gui.settings_dialog import SettingsDialog
@@ -114,6 +116,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.window.validate_button,
             self.window.milestones_button,
             self.window.settings_button,
+            self.window.checkpoints_button,
         ):
             with self.subTest(widget=type(widget).__name__):
                 self.assertTrue(widget.isVisible())
@@ -154,6 +157,82 @@ class GuiSmokeTests(unittest.TestCase):
         APP.processEvents()
 
         self.assertGreater(self.window.results_table.rowCount(), 0)
+
+    def test_checkpoints_button_shows_the_human_queue(self):
+        self._select("good")
+        payload = {
+            "human_review": {
+                "status": "pending-human-review",
+                "checkpoints": [
+                    {
+                        "id": "proof",
+                        "type": "approve",
+                        "question": "主证明逐行成立吗？",
+                        "answer_with": "写 reviewer 与复核证据路径",
+                        "ledger": "data/proof-audit.yaml",
+                    }
+                ],
+            }
+        }
+
+        with mock.patch(
+            "ccfa_gui.window.load_checkpoints",
+            return_value=CheckResult(
+                name="checkpoints",
+                ok=False,
+                problems=(),
+                report=payload,
+            ),
+        ):
+            self.window.checkpoints_button.click()
+            APP.processEvents()
+
+        self.assertEqual(self.window.checkpoint_card_count(), 1)
+        self.assertEqual(self.window.detail_stack.currentIndex(), 1)
+        card = self.window._checkpoint_cards[0]
+        question = card.findChild(QLabel, "checkpointQuestion")
+        self.assertIn("主证明逐行成立吗？", question.text())
+        meta = card.findChild(QLabel, "checkpointMeta")
+        self.assertIn("data/proof-audit.yaml", meta.text())
+        self.assertIn("写 reviewer 与复核证据路径", meta.text())
+        self.assertTrue(self.window.checkpoint_banner.isVisible())
+        self.assertIn("待人工复核", self.window.checkpoint_banner.text())
+
+        self.window.validate_button.click()
+        APP.processEvents()
+        self.assertEqual(self.window.detail_stack.currentIndex(), 0)
+        self.assertFalse(self.window.checkpoint_banner.isVisible())
+
+    def test_open_ledger_refuses_paths_outside_the_project(self):
+        self._select("good")
+        fake = mock.Mock()
+
+        with mock.patch("ccfa_gui.window.QDesktopServices", fake):
+            self.window._open_ledger("../../evil.yaml")
+            fake.openUrl.assert_not_called()
+
+            self.window._open_ledger("data/proof-audit.yaml")
+            fake.openUrl.assert_called_once()
+
+    def test_empty_project_list_shows_the_placeholder(self):
+        empty_root = Path(self._temporary.name) / "empty"
+        (empty_root / "papers").mkdir(parents=True)
+
+        window = MainWindow(
+            repo_root=empty_root,
+            secret_store=self.secrets,
+            settings_path=empty_root / "settings.json",
+        )
+        window.show()
+        APP.processEvents()
+        self.addCleanup(window.deleteLater)
+
+        self.assertEqual(window.project_list.count(), 0)
+        self.assertEqual(window.detail_stack.currentIndex(), 2)
+        self.assertIn("还没有论文项目", window.placeholder_title.text())
+        self.assertIn("new-paper.ps1", window.placeholder_hint.text())
+        self.assertFalse(window.placeholder_icon.pixmap().isNull())
+        window.close()
 
     def test_run_validate_on_bad_project_shows_error_row(self):
         self._select("bad")

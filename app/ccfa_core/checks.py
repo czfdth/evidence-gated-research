@@ -103,3 +103,35 @@ def run_milestones_due(
         problems=problems,
         report=report,
     )
+
+
+def run_checkpoints(project, *, client: WorkflowClient | None = None) -> CheckResult:
+    """Return the human decision queue for *project*.
+
+    Reads ``ccfa.readiness --checkpoints-only``, which resolves the pending
+    human ledgers without running the full gate set. ``problems`` carries the
+    checkpoint records themselves, so the workbench can render the question and
+    the ledger it has to be answered in.
+    """
+
+    project_dir = _project_dir(project)
+    report = _run(
+        client or WorkflowClient(),
+        "readiness",
+        ("--checkpoints-only", "--paper-root", str(project_dir)),
+        "readiness --checkpoints-only",
+    )
+    human = report.get("human_review")
+    human = human if isinstance(human, dict) else {}
+    checkpoints = tuple(
+        item
+        for item in human.get("checkpoints", [])
+        if isinstance(item, dict)
+    )
+    status = human.get("status", "unknown")
+    return CheckResult(
+        name="checkpoints",
+        ok=status in {"human-attested", "not-required"},
+        problems=checkpoints,
+        report=report,
+    )

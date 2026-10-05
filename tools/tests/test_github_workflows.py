@@ -262,6 +262,31 @@ class GitHubWorkflowTests(unittest.TestCase):
             )
         self.assertFalse(lines[-1].endswith("`"))
 
+    def test_ci_compile_list_paths_exist(self):
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+        payload = yaml.safe_load(workflow)
+        step = next(
+            item
+            for item in payload["jobs"]["tools-impact"]["steps"]
+            if item.get("name") == "Compile core modules"
+        )
+        listed = [
+            line.strip().rstrip("`").strip()
+            for line in step["run"].splitlines()
+            if line.strip().startswith("tools/")
+            and line.strip().rstrip("`").strip().endswith(".py")
+        ]
+        self.assertTrue(listed)
+        missing = [path for path in listed if not (ROOT / path).is_file()]
+        self.assertEqual(
+            missing,
+            [],
+            "tests.yml 的 py_compile 列表引用了不存在的模块；"
+            "新增或改名模块时必须在同一个提交里更新列表与文件",
+        )
+
     def test_actions_use_current_node24_compatible_majors(self):
         workflow_text = "\n".join(
             path.read_text(encoding="utf-8")

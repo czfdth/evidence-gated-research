@@ -166,6 +166,18 @@ HUMAN_CHECKPOINT_SPECS = {
         "question": "第二位人类编码者完成盲法编码了吗？一致率达到预设门槛了吗？",
         "answer_with": "写 coders、agreement、kappa 与分歧裁决",
     },
+    "cross-review": {
+        "type": "approve",
+        "stage": "internal-review",
+        "question": (
+            "是否有真实跨族、gate-capable 的独立评审，"
+            "且确定性 gate 不再否决模型 pass？"
+        ),
+        "answer_with": (
+            "配置可验证的跨族 provider 后重跑评审，"
+            "或完成外部人类评审并写 reviewer、结论与证据"
+        ),
+    },
 }
 
 
@@ -702,6 +714,16 @@ def _human_review_status(
             pending.append("figure-support")
         if any("human-coding" in code for code in codes):
             pending.append("human-coding")
+    review_codes = {
+        str(problem.get("code", ""))
+        for result in (gate_results or [])
+        if result.get("name") == "cross-review"
+        for problem in result.get("problems", [])
+        if isinstance(problem, dict)
+    }
+    if review_codes:
+        pending.append("cross-review")
+    pending = list(dict.fromkeys(pending))
     if not pending:
         status = "human-attested" if profile == "high-assurance" else "not-required"
         return {"status": status, "pending": [], "checkpoints": []}
@@ -982,6 +1004,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         help="可选 Markdown 输出路径；相对路径按 paper-root 解析",
     )
+    parser.add_argument(
+        "--checkpoints-only",
+        action="store_true",
+        help="只输出人工复核 checkpoint，不执行 gate（给桌面工作台用）",
+    )
     return parser
 
 
@@ -990,6 +1017,21 @@ def main(argv: list[str]) -> int:
     try:
         today = date.fromisoformat(args.today) if args.today else None
         paper_root = Path(args.paper_root)
+        if args.checkpoints_only:
+            # The workbench needs the human queue, not 25 gate subprocesses.
+            state = _load_state(paper_root)
+            selected_profile = _profile(state, args.profile)
+            assurance = _assurance(state)
+            audit_profile = _audit_profile(selected_profile, assurance)
+            payload = {
+                "paper_root": str(paper_root),
+                "profile": selected_profile,
+                "assurance": assurance or _default_assurance(selected_profile),
+                "audit_profile": audit_profile,
+                "human_review": _human_review_status(paper_root, audit_profile),
+            }
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            return 0
         report = build_report(paper_root, profile=args.profile, today=today)
         if args.out:
             out = Path(args.out)

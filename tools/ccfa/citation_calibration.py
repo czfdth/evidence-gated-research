@@ -25,7 +25,10 @@ def _load_jsonl(path: Path) -> dict[str, dict]:
             raise ValueError(f"{path}:{line_number}: JSON 非法: {exc}") from exc
         if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
             raise ValueError(f"{path}:{line_number}: 缺少字符串 id")
-        rows[payload["id"]] = payload
+        item_id = payload["id"]
+        if item_id in rows:
+            raise ValueError(f"{path}:{line_number}: 重复 id: {item_id}")
+        rows[item_id] = payload
     return rows
 
 
