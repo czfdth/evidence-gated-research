@@ -1,0 +1,32 @@
+version: 1
+venue: ARR
+source: ARR Responsible NLP Checklist (adapted structure)
+items:
+  - id: limitations
+    category: limitations
+    requirement: Limitations are documented with concrete scope and impact.
+    required: true
+  - id: risks
+    category: risk
+    requirement: Risks to people, groups, or society are identified and mitigated.
+    required: true
+  - id: data-license
+    category: data
+    requirement: Dataset licenses and use restrictions are documented.
+    required: true
+  - id: annotation
+    category: annotation
+    requirement: Annotation protocol, coder qualifications, and agreement are reported.
+    required: true
+  - id: irb
+    category: ethics
+    requirement: Human-subjects review or IRB status is stated.
+    required: true
+  - id: social-impact
+    category: impact
+    requirement: Intended use, misuse potential, and social impact are discussed.
+    required: true
+  - id: reproducibility
+    category: reproducibility
+    requirement: Data, code, hyperparameters, and evaluation details support reproduction.
+    required: true

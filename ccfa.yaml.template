@@ -1,0 +1,32 @@
+version: "0.4.0"
+project:
+  title: "__TITLE__"
+  short_name: "__SLUG__"
+  root: "."
+target_venue:
+  name: "__VENUE__"
+  year: "__YEAR__"
+  mode: "__MODE__"
+  deadline: null
+stage:
+  current: "idea"
+  gate: "scope_defined"
+  updated_at: "__DATE__"
+  history: []
+artifacts:
+  manuscript: "manuscript/main.tex"
+  bibliography: "manuscript/references.bib"
+  figures: "figures/"
+  tables: "tables/"
+  experiments: "experiments/"
+  reviews: "reviews/"
+  submission: "submission/"
+claims: []
+experiments: []
+reviews: []
+revision_ledger:
+  path: "reviews/revision-ledger.md"
+  status: "not_started"
+submission_checks:
+  path: "submission/checks.md"
+  status: "not_started"

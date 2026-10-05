@@ -1,0 +1,10 @@
+# Versions verified in tools/.venv on Python 3.12.14.
+# bibtexparser declares pylatexenc as a required dependency for LaTeX decoding.
+bibtexparser==2.1.0
+pylatexenc==2.11
+pymupdf==1.28.2
+PyYAML==6.0.3
+z3-solver==5.1.0.0
+# Second independent SMT engine: agreement between Z3 and cvc5 is stronger
+# evidence than either engine alone, and cvc5 is a small pure-pip wheel.
+cvc5==1.3.1

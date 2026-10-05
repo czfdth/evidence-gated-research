@@ -1,0 +1,35 @@
+tools/.venv/
+app/.venv/
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+library/papers/*.pdf
+!library/papers/.gitkeep
+# Derived cursor for automation/watch-sources.json; rebuilt from scratch on a fresh clone.
+/library/watch-state.json
+# Rebuilt from Markdown wiki entries by research-wiki index.
+/library/wiki/index.json
+/library/wiki/query_pack.md
+# Derived paper projects created by tools/newpaper land here.
+/papers/
+__pycache__/
+*.pyc
+# Tool caches and plugin scratch state; all regenerable, never evidence.
+.ruff_cache/
+.pytest_cache/
+.superpowers/
+/repro-bundle.out.json
+# Root-level ad-hoc command captures from manual verification. Durable evidence
+# belongs under reviews/ or a paper repository's ccfa-workfiles/.
+/*.err.txt
+/*-check.json
+/argument-audit.json
+/readiness-*.json
+/runlog-migration.out.json
+/verify-all.out.json
+/ccfa-workfiles/

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "feeds": [],
+  "state": "library/watch-state.json",
+  "notes": "把要监控的 arXiv Atom feed URL 填进 feeds（例如 http://export.arxiv.org/api/query?search_query=cat:cs.CL&sortBy=submittedDate&sortOrder=descending&max_results=50）。feeds 为空时，周监控保持安静，不通知。"
+}

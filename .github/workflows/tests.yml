@@ -1,0 +1,176 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: lint and dependency audit
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install quality tools
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff==0.16.10 pip-audit==2.10.1
+
+      - name: Ruff correctness baseline
+        shell: pwsh
+        run: |
+          ruff check tools app
+
+      - name: Dependency vulnerability audit
+        shell: pwsh
+        run: |
+          pip-audit -r tools/requirements.lock --disable-pip --progress-spinner off
+          pip-audit -r app/requirements.lock --disable-pip --progress-spinner off
+
+  tools-impact:
+    name: tools impacted tests
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            tools/requirements.lock
+            app/requirements.lock
+
+      - name: Install tool dependencies
+        shell: pwsh
+        run: |
+          python -m venv tools/.venv
+          tools/.venv/Scripts/python.exe -m pip install --upgrade pip
+          tools/.venv/Scripts/python.exe -m pip install -r tools/requirements.lock
+
+      - name: Compile core modules
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          tools/.venv/Scripts/python.exe -m py_compile `
+            tools/ccfa/ara_compile.py `
+            tools/ccfa/artifact_badge.py `
+            tools/ccfa/artifact_store.py `
+            tools/ccfa/cross_review.py `
+            tools/ccfa/citation_calibration.py `
+            tools/ccfa/dashboard.py `
+            tools/ccfa/doctor.py `
+            tools/ccfa/experiment_loop.py `
+            tools/ccfa/formal_check.py `
+            tools/ccfa/governance_map.py `
+            tools/ccfa/meta_optimize.py `
+            tools/ccfa/post_submission.py `
+            tools/ccfa/proof_orchestrator.py `
+            tools/ccfa/proof_run.py `
+            tools/ccfa/readiness.py `
+            tools/ccfa/repro_package.py `
+            tools/ccfa/research_ledgers.py `
+            tools/ccfa/research_state.py `
+            tools/ccfa/research_wiki.py `
+            tools/ccfa/resubmit_pipeline.py `
+            tools/ccfa/review_loop.py `
+            tools/ccfa/rigor.py `
+            tools/ccfa/passport_ledger.py `
+            tools/ccfa/run_ledger.py `
+            tools/ccfa/session_replay.py `
+            tools/ccfa/test_impact.py
+            tools/ccfa/talk_pipeline.py
+            tools/ccfa/venue_fixtures.py
+            tools/ccfa/verifiers.py
+
+      - name: Run impacted tool tests
+        shell: pwsh
+        run: |
+          $event = "${{ github.event_name }}"
+          if ($event -eq "pull_request") {
+            scripts/test-impact.ps1 run --suite tools `
+              --base "${{ github.event.pull_request.base.sha }}"
+          } elseif ($event -eq "push") {
+            $base = "${{ github.event.before }}"
+            git cat-file -e "$base^{commit}" 2>$null
+            if ($base -match "^0+$" -or $LASTEXITCODE -ne 0) {
+              scripts/test-impact.ps1 run --suite tools --full
+            } else {
+              scripts/test-impact.ps1 run --suite tools --base $base
+            }
+          } else {
+            scripts/test-impact.ps1 run --suite tools --full
+          }
+
+  app-impact:
+    name: app impacted tests
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            tools/requirements.lock
+            app/requirements.lock
+
+      - name: Install app dependencies
+        shell: pwsh
+        run: |
+          python -m venv tools/.venv
+          tools/.venv/Scripts/python.exe -m pip install --upgrade pip
+          tools/.venv/Scripts/python.exe -m pip install -r tools/requirements.lock
+          python -m venv app/.venv
+          app/.venv/Scripts/python.exe -m pip install --upgrade pip
+          app/.venv/Scripts/python.exe -m pip install -r app/requirements.lock
+
+      - name: Run impacted app tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $event = "${{ github.event_name }}"
+          if ($event -eq "pull_request") {
+            scripts/test-impact.ps1 run --suite app `
+              --base "${{ github.event.pull_request.base.sha }}"
+          } elseif ($event -eq "push") {
+            $base = "${{ github.event.before }}"
+            git cat-file -e "$base^{commit}" 2>$null
+            if ($base -match "^0+$" -or $LASTEXITCODE -ne 0) {
+              scripts/test-impact.ps1 run --suite app --full
+            } else {
+              scripts/test-impact.ps1 run --suite app --base $base
+            }
+          } else {
+            scripts/test-impact.ps1 run --suite app --full
+          }

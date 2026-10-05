@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: One-Stop Research Workflow
+message: If this workflow helps your research process, cite the repository release you used.
+type: software
+authors:
+  - name: The Authors
+repository-code: https://github.com/czfdth/evidence-gated-research
+abstract: Local, evidence-gated research workflow for conference and journal paper projects.
+license: MIT
+version: 0.4.0
+date-released: '2026-10-04'

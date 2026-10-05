@@ -1,0 +1,184 @@
+name: paper-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      paper_repository:
+        description: Private paper repository to check
+        required: true
+        default: your-org/your-paper
+      paper_ref:
+        description: Paper branch, tag, or commit
+        required: true
+        default: master
+      profile:
+        description: Readiness profile
+        required: true
+        default: standard
+        type: choice
+        options:
+          - minimal
+          - standard
+          - high-assurance
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-paper-checks:
+    name: deterministic paper checks
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkout private paper
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.paper_repository }}
+          ref: ${{ inputs.paper_ref }}
+          path: _paper
+          token: ${{ secrets.PAPER_REPOSITORY_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/requirements.lock
+
+      - name: Install tool dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r tools/requirements.lock
+
+      - name: Validate paper checkout
+        shell: pwsh
+        run: |
+          $paper = "_paper"
+          if (-not (Test-Path -LiteralPath $paper -PathType Container)) {
+            throw "paper_root does not exist in this checkout: $paper"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $paper "ccfa.yaml") -PathType Leaf)) {
+            throw "paper_root lacks ccfa.yaml: $paper"
+          }
+
+      - name: Core deterministic gates
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          python -m ccfa.validate "_paper/ccfa.yaml"
+          python -m ccfa.citation_guard `
+            --manuscript "_paper/manuscript" `
+            --bib "_paper/manuscript/references.bib" `
+            --ledger "_paper/data/citation-ledger.json"
+          python -m ccfa.trace_claims `
+            --manuscript "_paper/manuscript" `
+            --base-dir "_paper"
+          python -m ccfa.novelty --paper-root "_paper"
+          python -m ccfa.stats_plan --paper-root "_paper"
+          python -m ccfa.repro_env --paper-root "_paper"
+          python -m ccfa.latex_check `
+            --manuscript "_paper/manuscript" `
+            --bib "_paper/manuscript/references.bib"
+          python -m ccfa.final_check `
+            --manuscript "_paper/manuscript" `
+            --pdf "_paper/submission/final.pdf"
+          python -m ccfa.run_log `
+            --paper-root "_paper" `
+            --log-dir "_paper/experiments/log" check
+          python -m ccfa.formal_check `
+            --paper-root "_paper" `
+            --out "_paper/reviews/formal-check.json"
+
+  readiness-and-human-review:
+    name: readiness and human review status (informational)
+    needs: deterministic-paper-checks
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkout private paper
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.paper_repository }}
+          ref: ${{ inputs.paper_ref }}
+          path: _paper
+          token: ${{ secrets.PAPER_REPOSITORY_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/requirements.lock
+
+      - name: Install tool dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r tools/requirements.lock
+
+      - name: Readiness report (informational)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          $out = & python -m ccfa.readiness `
+            --paper-root "_paper" `
+            --profile "${{ inputs.profile || 'standard' }}" `
+            --out "_paper/reviews/readiness.md"
+          $out | Set-Content -Encoding utf8 "_paper/reviews/readiness.json"
+          exit $LASTEXITCODE
+
+      - name: Governance status (informational)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          $out = & python -m ccfa.governance --paper-root "_paper"
+          $out | Set-Content -Encoding utf8 "_paper/reviews/governance-check.json"
+          exit $LASTEXITCODE
+
+      - name: Argument audit status (informational)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          $out = & python -m ccfa.argument_audit --paper-root "_paper"
+          $out | Set-Content -Encoding utf8 "_paper/reviews/argument-audit.json"
+          exit $LASTEXITCODE
+
+      - name: Cross-review status (informational)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "tools"
+          $out = & python -m ccfa.cross_review check `
+            --paper-root "_paper" `
+            --out-dir "_paper/reviews" `
+            --allow-same-family
+          $out | Set-Content -Encoding utf8 "_paper/reviews/cross-review-check.json"
+          exit $LASTEXITCODE
+
+      - name: Upload review status
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: paper-review-status
+          path: |
+            _paper/reviews/readiness.md
+            _paper/reviews/readiness.json
+            _paper/reviews/governance-check.json
+            _paper/reviews/argument-audit.json
+            _paper/reviews/cross-review-check.json
+          if-no-files-found: ignore

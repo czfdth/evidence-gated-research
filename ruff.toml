@@ -1,0 +1,7 @@
+# Repository baseline: syntax/import/name correctness. Optional style rule
+# families can still be run explicitly without weakening the default CI check.
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

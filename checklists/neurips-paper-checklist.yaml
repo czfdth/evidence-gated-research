@@ -1,0 +1,36 @@
+version: 1
+venue: NeurIPS
+source: NeurIPS Paper Checklist (adapted structure)
+items:
+  - id: claims
+    category: claims
+    requirement: Claims in the abstract, introduction, and results match the evidence.
+    required: true
+  - id: limitations
+    category: limitations
+    requirement: Limitations and negative results are stated explicitly.
+    required: true
+  - id: theory
+    category: theory
+    requirement: Theoretical results list assumptions, proof pointers, and completeness.
+    required: true
+  - id: experiments
+    category: reproducibility
+    requirement: Data, code, settings, seeds, and evaluation protocol are reproducible.
+    required: true
+  - id: statistics
+    category: statistics
+    requirement: Uncertainty, significance, and error bars are reported where applicable.
+    required: true
+  - id: compute
+    category: compute
+    requirement: Compute resources, training time, and cost are reported.
+    required: true
+  - id: ethics
+    category: ethics
+    requirement: Ethical concerns and broader impacts are discussed.
+    required: true
+  - id: safeguards
+    category: safety
+    requirement: Dual-use risks and safeguards are considered.
+    required: true

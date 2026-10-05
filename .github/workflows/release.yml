@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package without publishing a GitHub release
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: build archival package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build archive and SHA-256 manifest
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ("${{ inputs.tag }}") { $tag = "${{ inputs.tag }}" }
+          if (-not $tag) { $tag = "manual" }
+          $out = "release-artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          git archive --format=zip --output "$out/research-workflow-$tag.zip" HEAD
+          Get-FileHash "$out/research-workflow-$tag.zip" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  research-workflow-$tag.zip" } |
+            Set-Content -Encoding utf8 "$out/SHA256SUMS.txt"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: release-artifacts/
+
+      - name: Publish tagged GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release-artifacts/* `
+            --verify-tag `
+            --generate-notes `
+            --title "${{ github.ref_name }}"

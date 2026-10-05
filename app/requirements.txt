@@ -1,0 +1,9 @@
+# Pinned to the versions installed in app/.venv (Python 3.12.14).
+# The workbench no longer imports `ccfa`: it drives the workflow through the
+# CLI, so the workflow's own dependencies (bibtexparser, pylatexenc) are no
+# longer needed here. PyYAML stays because the workbench reads ccfa.yaml and
+# tool-registry YAML itself.
+PySide6==6.11.2
+keyring==25.7.0
+PyYAML==6.0.3
+httpx==0.28.1
