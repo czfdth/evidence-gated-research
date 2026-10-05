@@ -22,12 +22,15 @@ import yaml
 from newpaper.checklists import render_checklist
 from newpaper.create import create_project
 
+from . import request_venue_library
+
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = TOOLS_ROOT.parent
 
 
 class WorkflowEndToEnd(unittest.TestCase):
     def setUp(self):
+        request_venue_library(self)
         self._temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self._temporary.cleanup)
         self.root = Path(self._temporary.name)

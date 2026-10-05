@@ -194,7 +194,10 @@ class TestPromptAndArgv(CrossReviewTests):
         self.assertIn("--ephemeral", argv)
         self.assertIn("--skip-git-repo-check", argv)
         self.assertIn("-C", argv)
-        self.assertEqual(argv[argv.index("-C") + 1], str(self.paper_root))
+        self.assertEqual(
+            Path(argv[argv.index("-C") + 1]).resolve(),
+            Path(self.paper_root).resolve(),
+        )
         self.assertIn("--output-schema", argv)
         self.assertIn("-o", argv)
         self.assertEqual(argv[-1], "-")

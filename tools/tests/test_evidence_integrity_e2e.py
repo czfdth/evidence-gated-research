@@ -23,6 +23,8 @@ from ccfa.final_check import main as final_check_main
 from ccfa.run_log import check_runs, git_state, run_command
 from newpaper.create import create_project
 
+from . import request_venue_library
+
 
 def _git(repo: Path, *args: str) -> str:
     completed = subprocess.run(
@@ -61,6 +63,7 @@ def _init_repo(path: Path, message: str = "parent commit") -> str:
 
 class EvidenceIntegrityEndToEnd(unittest.TestCase):
     def setUp(self):
+        request_venue_library(self)
         self._temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self._temporary.cleanup)
         self.root = Path(self._temporary.name)

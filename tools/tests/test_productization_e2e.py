@@ -20,6 +20,8 @@ from ccfa.state import main as state_main
 from ccfa.validate import main as validate_main
 from newpaper.create import create_project
 
+from . import request_venue_library
+
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
 LEDGER_HEADER = "| Concern ID | 来源 | 类型 | 需要的新证据 | 处置 | 承诺风险 | 状态 |"
 LEDGER_SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- |"
@@ -27,6 +29,7 @@ LEDGER_SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- |"
 
 class ProductizationEndToEnd(unittest.TestCase):
     def setUp(self):
+        request_venue_library(self)
         self._temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self._temporary.cleanup)
         self.papers = Path(self._temporary.name) / "papers"

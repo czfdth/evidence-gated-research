@@ -7,8 +7,14 @@ from ccfa.texdoc import find_main_tex
 from ccfa.validate import validate_yaml
 from newpaper.create import create_project
 
+from . import request_latex_engine, request_venue_library
+
 
 class TestEndToEnd(unittest.TestCase):
+    def setUp(self):
+        request_venue_library(self)
+        request_latex_engine(self)
+
     def test_scaffold_validate_and_compile(self):
         papers = Path(tempfile.mkdtemp()) / "papers"
         root = create_project(

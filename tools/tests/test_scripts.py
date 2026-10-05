@@ -63,6 +63,8 @@ CCFA_WRAPPERS = {
     "research_wiki": "research-wiki.ps1",
     "research_state": "research-state.ps1",
     "ara_compile": "ara-compile.ps1",
+    "ara_extract": "ara-extract.ps1",
+    "worktree_audit": "worktree-audit.ps1",
     "dashboard": "dashboard.ps1",
     "formal_check": "formal-check.ps1",
     "verifiers": "verifiers.ps1",

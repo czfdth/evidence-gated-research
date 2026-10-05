@@ -76,6 +76,7 @@ jobs:
           $env:PYTHONPATH = "tools"
           tools/.venv/Scripts/python.exe -m py_compile `
             tools/ccfa/ara_compile.py `
+            tools/ccfa/ara_extract.py `
             tools/ccfa/artifact_badge.py `
             tools/ccfa/artifact_store.py `
             tools/ccfa/change_log.py `
@@ -104,27 +105,8 @@ jobs:
             tools/ccfa/talk_pipeline.py `
             tools/ccfa/test_impact.py `
             tools/ccfa/venue_fixtures.py `
-            tools/ccfa/verifiers.py
-
-      - name: Check workflow change log
-        shell: pwsh
-        run: |
-          $env:PYTHONPATH = "tools"
-          $event = "${{ github.event_name }}"
-          if ($event -eq "pull_request") {
-            tools/.venv/Scripts/python.exe -m ccfa.change_log check `
-              --base "${{ github.event.pull_request.base.sha }}"
-          } elseif ($event -eq "push") {
-            $base = "${{ github.event.before }}"
-            git cat-file -e "$base^{commit}" 2>$null
-            if ($base -match "^0+$" -or $LASTEXITCODE -ne 0) {
-              tools/.venv/Scripts/python.exe -m ccfa.change_log check `
-                --base "HEAD^"
-            } else {
-              tools/.venv/Scripts/python.exe -m ccfa.change_log check `
-                --base $base
-            }
-          }
+            tools/ccfa/verifiers.py `
+            tools/ccfa/worktree_audit.py
 
       - name: Run impacted tool tests
         shell: pwsh

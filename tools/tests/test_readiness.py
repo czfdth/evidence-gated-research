@@ -299,6 +299,87 @@ class ReadinessTests(unittest.TestCase):
         )
         self.assertIn("required human review is incomplete", report["blocking"])
 
+    def test_pending_human_ledgers_expand_into_answerable_checkpoints(self):
+        self._touch_ledgers(
+            [
+                "proof",
+                "citation-support",
+                "figure-support",
+                "governance",
+                "novelty",
+                "statistics",
+                "repro-environment",
+            ]
+        )
+        (self.paper_root / "data" / "proof-audit.yaml").write_text(
+            "version: 1\nstatus: pending-human-review\nreviews: []\n",
+            encoding="utf-8",
+        )
+        (self.paper_root / "data" / "human-coding-report.json").write_text(
+            '{"version": 1, "status": "pending-human-dual-coding"}\n',
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="high-assurance")
+
+        human = report["human_review"]
+        self.assertEqual(human["status"], "pending-human-review")
+        self.assertEqual(
+            sorted(human["pending"]),
+            ["citation-support", "figure-support", "human-coding", "proof"],
+        )
+        by_id = {item["id"]: item for item in human["checkpoints"]}
+        self.assertEqual(sorted(by_id), sorted(human["pending"]))
+        for key, item in by_id.items():
+            with self.subTest(checkpoint=key):
+                self.assertEqual(item["status"], "pending")
+                self.assertTrue(item["question"].strip())
+                self.assertTrue(item["answer_with"].strip())
+                self.assertTrue(str(item["ledger"]).startswith("data/"))
+        self.assertEqual(by_id["proof"]["type"], "approve")
+        self.assertEqual(by_id["proof"]["stage"], "internal-review")
+        self.assertEqual(by_id["proof"]["ledger"], "data/proof-audit.yaml")
+        self.assertEqual(by_id["human-coding"]["type"], "feedback")
+
+        rendered = render_markdown(report)
+        self.assertIn("## Human Checkpoints", rendered)
+        self.assertIn(by_id["proof"]["question"], rendered)
+        self.assertIn("data/proof-audit.yaml", rendered)
+
+    def test_attested_human_review_has_no_checkpoints(self):
+        self._touch_ledgers(
+            [
+                "proof",
+                "citation-support",
+                "figure-support",
+                "governance",
+                "novelty",
+                "statistics",
+                "repro-environment",
+            ]
+        )
+        for name, status in (
+            ("proof-audit.yaml", "human-attested"),
+            ("citation-support.yaml", "human-attested"),
+            ("figure-support.yaml", "human-attested"),
+        ):
+            (self.paper_root / "data" / name).write_text(
+                f"version: 1\nstatus: {status}\n",
+                encoding="utf-8",
+            )
+        (self.paper_root / "data" / "human-coding-report.json").write_text(
+            '{"version": 1, "status": "human-attested"}\n',
+            encoding="utf-8",
+        )
+
+        report = build_report(self.paper_root, profile="high-assurance")
+
+        self.assertEqual(report["human_review"]["status"], "human-attested")
+        self.assertEqual(report["human_review"]["checkpoints"], [])
+        rendered = render_markdown(report)
+        self.assertIn("## Human Checkpoints", rendered)
+        self.assertIn("- none", rendered)
+
     def test_minimal_can_be_ready_without_scientific_acceptance(self):
         self._touch_ledgers(["novelty"])
 

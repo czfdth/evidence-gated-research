@@ -69,6 +69,8 @@ CLI_WRAPPERS = {
     "research_wiki": "scripts/research-wiki.ps1",
     "research_state": "scripts/research-state.ps1",
     "ara_compile": "scripts/ara-compile.ps1",
+    "ara_extract": "scripts/ara-extract.ps1",
+    "worktree_audit": "scripts/worktree-audit.ps1",
     "dashboard": "scripts/dashboard.ps1",
     "formal_check": "scripts/formal-check.ps1",
     "verifiers": "scripts/verifiers.ps1",

@@ -4,8 +4,14 @@ from pathlib import Path
 
 from newpaper.venues import VenueNotFound, resolve_venue, templates_root
 
+from . import request_venue_library
+
 
 class TestVenueResolution(unittest.TestCase):
+    def setUp(self):
+        if self._testMethodName != "test_templates_root_honours_codex_home":
+            request_venue_library(self)
+
     def test_templates_root_honours_codex_home(self):
         original = os.environ.get("CODEX_HOME")
         try:

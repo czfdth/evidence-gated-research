@@ -4,6 +4,8 @@ from pathlib import Path
 
 from build.compile import CompileResult, compile_project
 
+from . import request_latex_engine
+
 PLAIN = r"""\documentclass{article}
 \begin{document}
 \section{Smoke}
@@ -31,6 +33,8 @@ SAMPLE_BIB = """\
 
 class TestCompileProject(unittest.TestCase):
     def setUp(self):
+        if self._testMethodName != "test_missing_file_reports_tool_error":
+            request_latex_engine(self)
         self.tmp = Path(tempfile.mkdtemp())
         self.tex = self.tmp / "main.tex"
 

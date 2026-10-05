@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ccfa-research-workflow"
+version = "0.1.0"
+description = "Evidence-first, fail-closed research workflow CLI."
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML>=6.0",
+    "bibtexparser>=2.0",
+    "pylatexenc>=2.11",
+    "PyMuPDF>=1.24",
+]
+
+[project.scripts]
+ccfa = "ccfa.dispatch:run"
+
+[tool.setuptools]
+package-dir = {"" = "tools"}
+
+[tool.setuptools.packages.find]
+where = ["tools"]
+include = ["ccfa*", "newpaper*"]

@@ -98,6 +98,8 @@ git -C $paper status --short
 | `tools/ccfa/research_state.py` | 对齐 AI-Research-SKILLs 的项目级 research-state：literature、hypotheses、experiments trajectory、outer loop 与 workspace | `scripts/research-state.ps1` |
 | `tools/ccfa/ara_compile.py` | 从 claim、exploration、figure、run 台账编译 ARA 五层 draft，并如实报告未满足的 Seal Level 1 项 | `scripts/ara-compile.ps1` |
 | `tools/ccfa/research_ledgers.py` | 校验 claim registry、assumptions/limitations、venue checklist、artifact provenance、探索图、成本账本与风险登记册 | `scripts/research-ledgers.ps1` |
+| `tools/ccfa/ara_extract.py` | 从本地 tex/bib/figure/run/claim/exploration 材料确定性抽取 ARA semantic input，并报告未解析字段 | `scripts/ara-extract.ps1` |
+| `tools/ccfa/worktree_audit.py` | 对照 change log 审计工作树漂移，列出已覆盖与未覆盖的工作流文件 | `scripts/worktree-audit.ps1` |
 | `tools/ccfa/experiment_loop.py` | 校验 pilot 筛选与内层/外层实验循环，绑定真实 claim 与 run id，并输出下一批待办动作 | `scripts/experiment-loop.ps1` |
 | `tools/ccfa/post_submission.py` | 校验 rebuttal 回复矩阵、resubmit venue 差异与 talk 大纲的产出物契约 | `scripts/post-submission.ps1` |
 | `tools/ccfa/resubmit_pipeline.py` | 校验 resubmit 物理隔离、bib 冻结、无新增 run、匿名泄漏与 forbidden path | `scripts/resubmit-pipeline.ps1` |

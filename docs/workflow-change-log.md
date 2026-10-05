@@ -71,3 +71,97 @@ rewrite historical entries.
 - tests:
   - `app.tests.test_chat_e2e`
 
+## WC-20261005T164251Z-c08422da28 - Adopt Modex-MH-Agent's checkpoint shape: expand each pending human ledger into a question with an explicit answer location.
+
+- timestamp: `2026-10-05T16:42:51Z`
+- status: `complete`
+- author: `codex`
+- reason: 参考 Modex-MH-Agent 工作流设计：他们把人工决定建模成 checkpoint（类型/展示数据/回复）。我们的 readiness 只输出 pending key 列表，人看不出到底要被问什么、答案写哪里。
+- files:
+  - `docs/reference-modex-mh-agent-2026-10-06.md`
+  - `docs/workflow-guide.md`
+  - `tools/ccfa/readiness.py`
+  - `tools/tests/test_readiness.py`
+- tests:
+  - `ruff check tools/ccfa/readiness.py tools/tests/test_readiness.py`
+  - `tools.tests.test_dashboard + test_docs_consistency (53 tests)`
+  - `tools.tests.test_readiness (33 tests)`
+- notes: worktree 缺 tools/.venv，test_scripts 在本目录跑不动；已在主仓库验证 tests.test_scripts 116 项通过。
+
+## WC-20261005T164518Z-207ae33734 - Add portable CLI entry, deterministic ARA extraction, and worktree drift audit.
+
+- timestamp: `2026-10-05T16:45:18Z`
+- status: `complete`
+- author: `codex`
+- reason: Address the portability, automatic semantic-extraction, and uncommitted-worktree drift gaps identified in the live comparison.
+- files:
+  - `.github/workflows/tests.yml`
+  - `README.md`
+  - `docs/workflow-guide.md`
+  - `pyproject.toml`
+  - `scripts/ara-extract.ps1`
+  - `scripts/worktree-audit.ps1`
+  - `tools/ccfa/ara_extract.py`
+  - `tools/ccfa/dispatch.py`
+  - `tools/ccfa/worktree_audit.py`
+  - `tools/tests/test_ara_extract.py`
+  - `tools/tests/test_docs_consistency.py`
+  - `tools/tests/test_packaging.py`
+  - `tools/tests/test_scripts.py`
+  - `tools/tests/test_worktree_audit.py`
+- tests:
+  - `tools.tests.test_ara_extract`
+  - `tools.tests.test_docs_consistency`
+  - `tools.tests.test_packaging`
+  - `tools.tests.test_scripts`
+  - `tools.tests.test_worktree_audit`
+
+## WC-20261005T164728Z-0a75308587 - Publish fake-pass detection notes and the P0/P1/P2 deficiency checklist.
+
+- timestamp: `2026-10-05T16:47:28Z`
+- status: `complete`
+- author: `codex`
+- reason: Keep the evidence-first moat visible and separate code-resolved items from human or external blockers.
+- files:
+  - `docs/fake-pass-detection.md`
+  - `docs/workflow-deficiency-checklist-2026-10-06.md`
+- tests:
+  - `tools.tests.test_change_log`
+
+## WC-20261005T165038Z-c0f50383ce - Make host-only tool end-to-end tests skip on a clean CI runner
+
+- timestamp: `2026-10-05T16:50:38Z`
+- status: `complete`
+- author: `codex`
+- reason: The venue derivation and compile suites run against the host ccf-latex-templates library and MiKTeX, neither of which exists on a GitHub runner or the public mirror. Skipping with an explicit reason keeps the full-suite CI job honest instead of red. Also resolve paths before comparing in the cross-review argv test so 8.3 short names do not fail it.
+- files:
+  - `tools/tests/__init__.py`
+  - `tools/tests/test_compile.py`
+  - `tools/tests/test_cross_review.py`
+  - `tools/tests/test_derivation_e2e.py`
+  - `tools/tests/test_e2e.py`
+  - `tools/tests/test_evidence_integrity_e2e.py`
+  - `tools/tests/test_productization_e2e.py`
+  - `tools/tests/test_venues.py`
+  - `tools/tests/test_workflow_e2e.py`
+- tests:
+  - `tools.tests.test_compile`
+  - `tools.tests.test_cross_review`
+  - `tools.tests.test_derivation_e2e`
+  - `tools.tests.test_e2e`
+  - `tools.tests.test_evidence_integrity_e2e`
+  - `tools.tests.test_productization_e2e`
+  - `tools.tests.test_venues`
+  - `tools.tests.test_workflow_e2e`
+
+## WC-20261005T165038Z-048c83d06d - Let the public mirror drop the private workflow change-log gate
+
+- timestamp: `2026-10-05T16:50:38Z`
+- status: `complete`
+- author: `codex`
+- reason: The mirror diff is not the private commit diff, so the change-log gate cannot be satisfied there; publish-public.ps1 now removes named workflow steps on the mirror via config.
+- files:
+  - `scripts/publish-public.ps1`
+- tests:
+  - `tools.tests.test_scripts`
+

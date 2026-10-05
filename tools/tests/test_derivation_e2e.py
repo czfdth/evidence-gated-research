@@ -31,9 +31,13 @@ from ccfa.validate import main as validate_main
 from newpaper.create import create_project
 from newpaper.venues import resolve_venue
 
+from . import request_latex_engine, request_venue_library
+
 
 class DerivationEndToEnd(unittest.TestCase):
     def setUp(self):
+        request_venue_library(self)
+        request_latex_engine(self)
         self._temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self._temporary.cleanup)
         self.papers = Path(self._temporary.name) / "papers"

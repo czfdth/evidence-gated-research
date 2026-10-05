@@ -115,6 +115,18 @@ git -C $paper status --short
 
 `readiness` 会执行当前 profile 对应的 gate。`evidence-present` 只表示文件齐全；`gate-verified` 才表示下游检查器真实通过。人工审计仍是 pending、cross-review provenance 不完整或 lockfile 漂移时，报告必须为 `ready=false`。
 
+`human_review.checkpoints` 把每条待人工项展开成**可回答的问题**：
+
+- `question`：要人判断的到底是什么；
+- `answer_with`：答案要写成什么；
+- `ledger`：答案落在哪个台账。
+
+`reviews/readiness.md` 的 `## Human Checkpoints` 段就是当天“必须由人决定”的清单。
+脚本只能证明它还没被回答，不能替你回答。
+
+会话恢复只装载聚焦上下文：新会话先读 `ccfa.yaml`、`reviews/readiness.md` 和当前 claim 的条目，
+不要把全部候选想法、全部台账历史一起塞进上下文。
+
 新论文模板已经包含 claim registry 与研究循环台账。填完一个 claim 后运行：
 
 ```powershell
@@ -442,6 +454,13 @@ scripts/change-log.ps1 render
 
 `docs/workflow-change-log.jsonl` 是 append-only source of truth；
 `docs/workflow-change-log.md` 是生成物。不要删改旧日志来绕过检查。
+
+工作树漂移审计：
+
+```powershell
+scripts/worktree-audit.ps1 --base origin/master --format markdown
+scripts/worktree-audit.ps1 --base origin/master --strict
+```
 
 修改工具后只运行新增、修改模块及直接消费者：
 

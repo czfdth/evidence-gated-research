@@ -129,6 +129,38 @@ LEDGER_GATE_NAMES = {
 # failing output lives; gates without one are reported as ``unproven-guard``.
 GATE_DRILLS_RELATIVE_PATH = Path("data") / "gate-failure-drills.yaml"
 
+# Human review is the one dimension no script can decide. Each pending ledger
+# is therefore expanded into a checkpoint record, following the shape used by
+# Modex-MH-Agent's ``checkpoints`` table: the question being asked, the payload
+# the human is shown, and where the answer has to be written. ``pending`` stays
+# as a plain key list so existing consumers keep working.
+HUMAN_CHECKPOINT_SPECS = {
+    "proof": {
+        "type": "approve",
+        "stage": "internal-review",
+        "question": "主证明逐行成立吗？每一步推理与所依赖的假设是否都站得住？",
+        "answer_with": "写 reviewer、结论与复核证据路径",
+    },
+    "citation-support": {
+        "type": "approve",
+        "stage": "writing",
+        "question": "关键引用是否真的支撑它所在的那句论断，而不只是存在？",
+        "answer_with": "逐条写 supports 与判定依据",
+    },
+    "figure-support": {
+        "type": "approve",
+        "stage": "writing",
+        "question": "每张图和表是否真的展示了正文声称的效应？",
+        "answer_with": "逐图写 figure 与判定依据",
+    },
+    "human-coding": {
+        "type": "feedback",
+        "stage": "results-ready",
+        "question": "第二位人类编码者完成盲法编码了吗？一致率达到预设门槛了吗？",
+        "answer_with": "写 coders、agreement、kappa 与分歧裁决",
+    },
+}
+
 
 @dataclass(frozen=True)
 class GitSummary:
@@ -587,7 +619,7 @@ def _gate_drill_advisories(
 
 def _human_review_status(paper_root: Path, profile: str) -> dict:
     if profile != "high-assurance":
-        return {"status": "not-required", "pending": []}
+        return {"status": "not-required", "pending": [], "checkpoints": []}
     pending = []
     for key in ("proof", "citation-support", "figure-support", "human-coding"):
         path = paper_root / EVIDENCE_LEDGER_PATHS[key]
@@ -598,7 +630,29 @@ def _human_review_status(paper_root: Path, profile: str) -> dict:
     return {
         "status": "pending-human-review" if pending else "human-attested",
         "pending": pending,
+        "checkpoints": _human_checkpoints(pending),
     }
+
+
+def _human_checkpoints(pending: list[str]) -> list[dict]:
+    """Expand pending human ledgers into question / answer-location records."""
+
+    checkpoints = []
+    for key in pending:
+        spec = HUMAN_CHECKPOINT_SPECS.get(key)
+        ledger = EVIDENCE_LEDGER_PATHS.get(key)
+        checkpoints.append(
+            {
+                "id": key,
+                "type": spec["type"] if spec else "approve",
+                "stage": spec["stage"] if spec else None,
+                "status": "pending",
+                "question": spec["question"] if spec else f"{key} 需要人工复核",
+                "answer_with": spec["answer_with"] if spec else "",
+                "ledger": ledger.as_posix() if ledger else None,
+            }
+        )
+    return checkpoints
 
 
 def _scientific_status(paper_root: Path) -> dict:
@@ -784,6 +838,19 @@ def render_markdown(report: dict) -> str:
     lines.extend(["", "## Blocking", ""])
     if report["blocking"]:
         lines.extend(f"- {item}" for item in report["blocking"])
+    else:
+        lines.append("- none")
+    checkpoints = report.get("human_review", {}).get("checkpoints", [])
+    lines.extend(["", "## Human Checkpoints", ""])
+    if checkpoints:
+        for item in checkpoints:
+            lines.append(
+                f"- `{item['id']}` ({item['type']}, stage `{item['stage']}`): "
+                f"{item['question']}"
+            )
+            lines.append(
+                f"  - 回答位置: `{item['ledger']}` — {item['answer_with']}"
+            )
     else:
         lines.append("- none")
     lines.extend(["", "## Evidence Ledgers", ""])
