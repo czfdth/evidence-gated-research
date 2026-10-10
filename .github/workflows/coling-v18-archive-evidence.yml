@@ -1,0 +1,94 @@
+name: COLING v18 preserve genuine LangChain and Qwen evidence as public release
+on:
+  push:
+    branches:
+      - experiments/coling-v18-publish-20261010
+permissions:
+  contents: write
+  actions: read
+jobs:
+  verify-and-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check source run was successful and repository is public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)" == "PUBLIC" ]]
+          [[ "$(gh run view 38028219354 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" == "success" ]]
+          echo 'PUBLIC_ORIGINAL_RUN_PASS'
+      - name: Download original recorded real 24-Agent plus Qwen 48-call artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence v18-runtime
+          gh run download 38028219354 --repo "$GITHUB_REPOSITORY" --name coling-v18-genuine-audited-agent --dir evidence
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          p=Path('papers/coling27-v18-runtime/v18-runtime.zip')
+          with ZipFile(p) as z:
+              for i in z.infolist():
+                  assert not i.filename.startswith('/') and '..' not in i.filename.split('/')
+              z.extractall('v18-runtime')
+          print('ORIGINAL_ARCHIVE_DOWNLOADED',sum(p.is_file() for p in Path('evidence').rglob('*')))
+          PY
+      - name: Independently check actual signed ledger, 24 agents and 48 true LLM outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          cd v18-runtime
+          python experiments/verify_real_run.py --dir ../evidence/installed-core | tee ../evidence/archival-verify-core.txt
+          python experiments/verify_agent_run.py --backend real --dir ../evidence/agent-real | tee ../evidence/archival-verify-agent.txt
+          python -m experiments.verify_openweight_llm_v18 --traces ../evidence/agent-real --dir ../evidence/llm-openweight-v18 --out ../evidence/archival-verify-llm.json | tee ../evidence/archival-verify-llm-stdout.txt
+          cd ..
+          python v18-runtime/scripts/evidence_manifest.py --dir evidence
+      - name: Make checksum-locked reproducible public evidence ZIP and GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,zipfile
+          from pathlib import Path
+          e=Path('evidence')
+          context={
+            'source_run_url':'https://github.com/czfdth/evidence-gated-research/actions/runs/38028219354',
+            'source_commit_sha':'3dd2758264d2da3c87a028394dfb355f56525ce4',
+            'artifact_id':'11661351621',
+            'original_artifact_sha256':'1f6007fee131add832532dfa3552ad3e56679ad1ad5b15514ad55a6ec9026da8',
+            'classification':'Real installed LangChain, actual local Qwen open-weight inference on synthetic fixed-ticket agent workflow; not hosted OpenAI API; not production security',
+            'independent_verifier':'All three offline verifiers must pass before release creation'}
+          (e/'PUBLIC_ARCHIVE_CONTEXT.json').write_text(json.dumps(context,indent=2)+'\n')
+          out=Path('coling-v18-real-agent-qwen-evidence.zip')
+          with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(e.rglob('*')):
+                  if p.is_file():z.write(p,str(p))
+          h=hashlib.sha256(out.read_bytes()).hexdigest()
+          (Path(str(out)+'.sha256')).write_text(h+'  '+out.name+'\n')
+          print('PUBLIC_EVIDENCE_ZIP_SHA256',h,'BYTES',out.stat().st_size)
+          PY
+          tag="coling-v18-real-qwen-evidence-38028219354"
+          gh release create "$tag" coling-v18-real-agent-qwen-evidence.zip coling-v18-real-agent-qwen-evidence.zip.sha256 --repo "$GITHUB_REPOSITORY" --target 3dd2758264d2da3c87a028394dfb355f56525ce4 --prerelease --title "COLING v18 genuine LangChain + 24 Agent cases + 48 Qwen responses" --notes "Public synthetic-workload test evidence. Original real successful GitHub Actions: https://github.com/czfdth/evidence-gated-research/actions/runs/38028219354. Includes signed two-read and 24-agent ledgers, model exact revision and weight SHA256, actual 48 raw responses, dependency freeze, independent verification outputs and checksums. No real customers, no autonomous LLM tool choices, no hosted OpenAI API or deployment guarantee."
+      - name: Upload verification and publication evidence also on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v18-public-release-checks
+          path: |
+            evidence/archival-verify-*.txt
+            evidence/archival-verify-*.json
+            evidence/PUBLIC_ARCHIVE_CONTEXT.json
+            coling-v18-real-agent-qwen-evidence.zip.sha256
+          if-no-files-found: warn

@@ -1717,3 +1717,16 @@ rewrite historical entries.
   - `Previous 48 actual SmolLM2 outputs independently checked, 48/48 invalid`
   - `Qwen true model run pending`
 - notes: Exploratory cross-model comparison; do not treat invalid outputs as safe; no hosted API.
+
+## WC-20261010-coling-v18-public-release - Independently verify genuine v18 LangChain and Qwen outputs and publish immutable checksum-indexed public prerelease
+
+- timestamp: `2026-10-10T05:48:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Actions 38028219354 successful, original signed/LLM raw artifacts time-limited; user requested publicly inspectable raw records and stable archive.
+- files:
+  - `.github/workflows/coling-v18-archive-evidence.yml`
+- tests:
+  - `Original workflow 38028219354 success (installed core, 24 synthetic Agent tickets, 48 Qwen generations)`
+  - `Archive independent GitHub runner verifier and GitHub Release pending`
+- notes: No private credentials or real customer records; separate branch; master unchanged.
