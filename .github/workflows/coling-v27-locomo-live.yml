@@ -1,0 +1,47 @@
+name: COLING v27 real LoCoMo prewrite-capture audit
+on:
+  push:
+    branches:
+      - experiments/coling-v27-real-lifecycle-20261010
+    paths:
+      - 'experiments/locomo_live_capture_v27.py'
+      - '.github/workflows/coling-v27-locomo-live.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-langchain-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated experiment branch
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install actual official LangChain and signing packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -c 'import langchain_core;from importlib.metadata import version;assert version("langchain-core")=="0.3.83";print(langchain_core.__file__)'
+      - name: Actual pre-overwrite signing and long-term memory writes
+        run: python experiments/locomo_live_capture_v27.py --mode generate --limit 10 --out locomo_live_evidence
+      - name: Fresh-process verifier reads public logs not oracle
+        run: python experiments/locomo_live_capture_v27.py --mode audit --out locomo_live_evidence
+      - name: Oracle grading only after audit outputs exist
+        run: python experiments/locomo_live_capture_v27.py --mode evaluate --out locomo_live_evidence
+      - name: Dataset provenance and no redistribution of entire dataset
+        if: always()
+        run: |
+          if [ -f locomo_live_evidence/locomo10.json ]; then sha256sum locomo_live_evidence/locomo10.json; rm locomo_live_evidence/locomo10.json; fi
+      - name: Upload original signed logs, audits and byte receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v27-live-locomo-capture
+          path: |
+            locomo_live_evidence/
+            experiments/locomo_live_capture_v27.py
+          retention-days: 90
+          if-no-files-found: error
