@@ -1597,3 +1597,17 @@ rewrite historical entries.
 - tests:
   - `tools.tests.test_test_impact`
 
+## WC-20261010-coling-real-smoke - Add isolated real LangChain and public tiny LLM smoke evidence jobs
+
+- timestamp: `2026-10-10T05:06:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: User requested public independently auditable installed-framework and open-weight model execution; isolated branch only.
+- files:
+  - `papers/coling27-real-smoke/real_core_smoke.py`
+  - `papers/coling27-real-smoke/open_model_probe.py`
+  - `.github/workflows/coling-real-core-smoke.yml`
+- tests:
+  - `Local Python syntax check passed (earlier kit)`
+  - `GitHub Actions pending; not yet executed`
+- notes: Standalone smoke tests, not full COLING main experiment.
