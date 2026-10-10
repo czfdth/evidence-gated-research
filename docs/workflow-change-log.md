@@ -1677,3 +1677,16 @@ rewrite historical entries.
   - `Python compile/zip hashes local; corrected v18 full run pending`
   - `Previously run 38027597282: official install PASS, runtime relevance API mismatch FAIL`
 - notes: The wrapper uses identity on cosine similarities with authentic official InMemoryVectorStore base class; source hash remains pinned.
+
+## WC-20261010-v18-store-class-report - Report installed InMemoryVectorStore base type and concrete relevance adapter separately
+
+- timestamp: `2026-10-10T05:51:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Real v18 run 38027694447 completed signed two-read execution; independent verifier failed on concrete adapter class name rather than official base class.
+- files:
+  - `papers/coling27-v18-runtime/v18-runtime.zip`
+- tests:
+  - `real LangChain two-read runner succeeded in Actions 38027694447`
+  - `Independent verifier previously rejected misleading class report; fix pending`
+- notes: Avoids weakening independent verifier; adds concrete subclass reporting field.
