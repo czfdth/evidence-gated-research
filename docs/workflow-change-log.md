@@ -1624,3 +1624,16 @@ rewrite historical entries.
   - `GitHub Actions run 38027179017 failed before any jobs`
   - `Revised workflow rerun pending`
 - notes: Raw artifacts will be retained as Actions artifacts; no release automatically created in this diagnostic revision.
+
+## WC-20261010-fix-visible-smoke - Restore valid inline genuine installed LangChain smoke workflow after connector returned hidden-file placeholders
+
+- timestamp: `2026-10-10T05:29:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Original pushed blob was 155-byte placeholder; prior GitHub run failed validation before job creation. Inline workflow avoids unavailable file transport.
+- files:
+  - `.github/workflows/coling-real-core-smoke.yml`
+- tests:
+  - `Existing run 38027179017 failed without jobs`
+  - `Corrected smoke run pending`
+- notes: This is a minimal real-framework smoke, not v18 experiment.

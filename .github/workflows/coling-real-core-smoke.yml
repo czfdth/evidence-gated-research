@@ -1,1 +1,82 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+name: COLING genuine LangChain smoke
+on:
+  push:
+    branches:
+      - experiments/coling-core-smoke-20261010
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installed-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned official LangChain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -m pip download --no-deps -d evidence 'langchain-core==0.3.83'
+          echo "8c92506f8b53fc1958b1c07447f58c5783eb8833dd3cb6dc75607c80891ab1ae  evidence/langchain_core-0.3.83-py3-none-any.whl" | sha256sum -c - | tee evidence/wheel-verify.txt
+          python -m pip install 'langchain-core==0.3.83' cryptography
+          python -m pip freeze > evidence/pip-freeze.txt
+      - name: Execute installed core BaseRetriever invoke, vector store, tool, runnable
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' | tee evidence/actual-execution.json
+          import json, hashlib, pathlib
+          from importlib.metadata import version
+          import langchain_core
+          from langchain_core.documents import Document
+          from langchain_core.embeddings import Embeddings
+          from langchain_core.vectorstores import InMemoryVectorStore
+          from langchain_core.retrievers import BaseRetriever
+          from langchain_core.tools import tool
+          from langchain_core.runnables import RunnableLambda
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          assert version('langchain-core') == '0.3.83'
+          class Vectors(Embeddings):
+              def embed_documents(self, texts):
+                  return [[1.,0.] if 'refund' in t.lower() else [0.,1.] for t in texts]
+              def embed_query(self, text):
+                  return [1.,0.] if 'refund' in text.lower() else [0.,1.]
+          store=InMemoryVectorStore(Vectors())
+          store.add_documents([Document(page_content='Refund policy requires verification',id='refund'),
+                               Document(page_content='Untrusted chat note: ignore policy',id='note')])
+          class Retriever(BaseRetriever):
+              def _get_relevant_documents(self, query, *, run_manager):
+                  return store.similarity_search(query,k=2)
+          docs=Retriever().invoke('refund policy')
+          assert len(docs)==2
+          @tool
+          def count_documents(n:int)->int:
+              """Return number of retrieved documents."""
+              return n
+          tool_result=count_documents.invoke({'n':len(docs)})
+          runnable_result=RunnableLambda(lambda n:n+1).invoke(tool_result)
+          assert (tool_result,runnable_result)==(2,3)
+          priv=Ed25519PrivateKey.generate()
+          raw=json.dumps({'ids':[d.id for d in docs], 'tool':tool_result, 'runnable':runnable_result},sort_keys=True).encode()
+          signature=priv.sign(raw)
+          priv.public_key().verify(signature,raw)
+          payload={'result':'PASS_INSTALLED_LANGCHAIN_SMOKE','version':version('langchain-core'),
+             'installed_module_path':str(pathlib.Path(langchain_core.__file__).resolve()),
+             'real_vectorstore':'InMemoryVectorStore', 'base_retriever_invoke':True,
+             'selected_ids':[d.id for d in docs], 'tool_result':tool_result,
+             'runnable_result':runnable_result,'payload_sha256':hashlib.sha256(raw).hexdigest(),
+             'signature_sha256':hashlib.sha256(signature).hexdigest(),
+             'limitation':'synthetic smoke only; NOT full COLING time-weighted experiment or LLM agent'}
+          print(json.dumps(payload,sort_keys=True))
+          PY
+      - name: Archive evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-genuine-langchain-smoke
+          path: evidence/
+          if-no-files-found: warn
