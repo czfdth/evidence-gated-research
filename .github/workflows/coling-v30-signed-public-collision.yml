@@ -1,0 +1,62 @@
+name: COLING v30 public-signed observation collision on pinned LangChain
+on:
+  push:
+    branches:
+      - experiments/coling-v30-no-public-old-times-20261010
+    paths:
+      - 'experiments/locomo_readside_alias_v30.py'
+      - '.github/workflows/coling-v30-signed-public-collision.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-native-alias:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install genuine official core and signing packages
+        run: |
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -c 'from importlib.metadata import version;assert version("langchain-core")=="0.3.83"'
+      - name: Download and pin original official time-weighted source
+        run: |
+          mkdir -p src
+          curl --fail --location --retry 3 --silent --show-error https://raw.githubusercontent.com/langchain-ai/langchain/bdf1cd383ce36dc18381a3bf3fb0a579337a32b5/libs/langchain/langchain/retrievers/time_weighted_retriever.py -o src/time_weighted_retriever_v29.py
+          echo '2a55ff628c1d44ebf1faa01008579ac26ed0ae5996daec6dcde3ae4cb9233daa  src/time_weighted_retriever_v29.py' | sha256sum --check
+      - name: Native paired runs with same actual signed public events
+        run: |
+          python experiments/locomo_readside_alias_v30.py --mode generate --out v30-evidence
+          sha256sum v30-evidence/public/world-*-ledger.jsonl
+          cmp v30-evidence/public/world-0-ledger.jsonl v30-evidence/public/world-1-ledger.jsonl
+      - name: Recreate restricted P auditor as an isolated filesystem
+        run: |
+          mkdir -p only-public
+          cp -a v30-evidence/public/. only-public/
+          python experiments/locomo_readside_alias_v30.py --mode audit --out only-public
+          test ! -e only-public/oracle.json
+          test ! -d only-public/private
+          python - <<'PY'
+          import json
+          x=json.load(open('only-public/audit-verdict.json'))
+          assert x['verdict']=='UNVERIFIABLE' and not x['used_private_oracle']
+          print("PUBLIC_ONLY_ABSTAIN",x['public_signed_ledger_sha256'])
+          PY
+          cp only-public/audit-verdict.json v30-evidence/public/audit-verdict.json
+      - name: Compare separate private truth only after abstention
+        run: python experiments/locomo_readside_alias_v30.py --mode grade --out v30-evidence
+      - name: Preserve original execution records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v30-real-readside-identical-signed-P-observations
+          path: |
+            v30-evidence/
+            experiments/locomo_readside_alias_v30.py
+            experiments/locomo_readside_v29.py
+            src/time_weighted_retriever_v29.py
+          retention-days: 90
+          if-no-files-found: error
