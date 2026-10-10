@@ -1637,3 +1637,16 @@ rewrite historical entries.
   - `Existing run 38027179017 failed without jobs`
   - `Corrected smoke run pending`
 - notes: This is a minimal real-framework smoke, not v18 experiment.
+
+## WC-20261010-coling-numpy - Install numpy for genuine InMemoryVectorStore cosine scoring
+
+- timestamp: `2026-10-10T05:27:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Observed actual runner 38027315800 failure: ImportError numpy required after real BaseRetriever.invoke entered vector-store code.
+- files:
+  - `.github/workflows/coling-real-core-smoke.yml`
+- tests:
+  - `Official wheel and installed core completed successfully in run 38027315800`
+  - `Corrected installed-core smoke pending`
+- notes: No claim of successful full workflow until GitHub job returns green.

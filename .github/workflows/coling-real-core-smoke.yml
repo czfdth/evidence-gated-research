@@ -22,7 +22,7 @@ jobs:
           mkdir -p evidence
           python -m pip download --no-deps -d evidence 'langchain-core==0.3.83'
           echo "8c92506f8b53fc1958b1c07447f58c5783eb8833dd3cb6dc75607c80891ab1ae  evidence/langchain_core-0.3.83-py3-none-any.whl" | sha256sum -c - | tee evidence/wheel-verify.txt
-          python -m pip install 'langchain-core==0.3.83' cryptography
+          python -m pip install 'langchain-core==0.3.83' cryptography numpy
           python -m pip freeze > evidence/pip-freeze.txt
       - name: Execute installed core BaseRetriever invoke, vector store, tool, runnable
         shell: bash
