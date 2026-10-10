@@ -1664,3 +1664,16 @@ rewrite historical entries.
   - `Source ZIP SHA-256 retained in workflow log; check pending`
   - `CI real framework and 24-case agent pending`
 - notes: Synthetic agent policy and embeddings; not a genuine autonomous LLM agent. Public GitHub branch only; master unchanged.
+
+## WC-20261010-v18-relevance-adapter - Adapt official InMemoryVectorStore cosine similarities to upstream relevance-score API
+
+- timestamp: `2026-10-10T05:47:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Real installed-core run 38027597282 failed in BaseVectorStore._select_relevance_score_fn NotImplementedError; no source hash change to upstream retriever.
+- files:
+  - `papers/coling27-v18-runtime/v18-runtime.zip`
+- tests:
+  - `Python compile/zip hashes local; corrected v18 full run pending`
+  - `Previously run 38027597282: official install PASS, runtime relevance API mismatch FAIL`
+- notes: The wrapper uses identity on cosine similarities with authentic official InMemoryVectorStore base class; source hash remains pinned.
