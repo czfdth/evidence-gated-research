@@ -1,0 +1,74 @@
+name: COLING v18 independent full numerical experiment replay
+on:
+  push:
+    branches:
+      - experiments/coling-v18-math-replay-20261010
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Extract frozen mathematical experiment sources and reference data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mathwork
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import hashlib
+          p=Path('papers/coling27-v18-math/math-replay.zip')
+          print('FROZEN_MATH_BUNDLE_SHA256',hashlib.sha256(p.read_bytes()).hexdigest())
+          with ZipFile(p) as z:
+              for i in z.infolist():
+                  assert '..' not in i.filename.split('/') and not i.filename.startswith('/')
+              z.extractall('mathwork')
+          PY
+      - name: Install clean Python source and fixture dependencies
+        working-directory: mathwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-real-core.txt
+          mkdir -p public-results
+          python -m pip freeze > public-results/pip-freeze.txt
+      - name: Recompute main-paper three experiment families and bytecompare all six JSON
+        working-directory: mathwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u experiments/reproduce_and_compare.py --reference results/main-v11 --log public-results/deterministic-replay.json 2>&1 | tee public-results/deterministic-replay-stdout.txt
+      - name: Verify every frozen dual witness and input source hashes
+        working-directory: mathwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u experiments/verify_main_artifacts.py --dir results/main-v11 2>&1 | tee public-results/main-artifact-verifier.txt
+          python -u experiments/verify_all_certificates.py --dir results/v13-full-certificate-audit --reference results/main-v11 2>&1 | tee public-results/all-4401-certificates.txt
+      - name: Retest reconstructed-main experiment modules
+        working-directory: mathwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_main_experiments tests.test_full_certificate_v13 -v 2>&1 | tee public-results/reconstruction-unit-tests.txt
+      - name: Write public SHA256 inventory
+        if: always()
+        working-directory: mathwork
+        shell: bash
+        run: |
+          mkdir -p public-results
+          python scripts/evidence_manifest.py --dir public-results
+      - name: Save raw experiment replay and checker logs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v18-full-math-replay
+          path: mathwork/public-results/
+          if-no-files-found: warn

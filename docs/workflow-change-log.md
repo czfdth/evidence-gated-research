@@ -1717,3 +1717,17 @@ rewrite historical entries.
   - `Previous 48 actual SmolLM2 outputs independently checked, 48/48 invalid`
   - `Qwen true model run pending`
 - notes: Exploratory cross-model comparison; do not treat invalid outputs as safe; no hosted API.
+
+## WC-20261010-v18-math-remote-replay - Independently replay complete source-backed synthetic main experiments and all 4401 negative witnesses in hosted CI
+
+- timestamp: `2026-10-10T05:51:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Reconfirm old frozen synthetic LP/text/prospective results and model-independent certificates alongside successful real framework and model public evidence; report six exact JSON comparisons.
+- files:
+  - `papers/coling27-v18-math/math-replay.zip`
+  - `.github/workflows/coling-v18-math-replay.yml`
+- tests:
+  - `Previously frozen local six JSON artifacts and 4401 dual checks PASS`
+  - `Clean GitHub Actions numerical replay pending`
+- notes: Not new real customer data or a reproduction of missing pre-v11 pilot inputs. Independent branch, master untouched.
