@@ -1731,3 +1731,16 @@ rewrite historical entries.
   - `Previously frozen local six JSON artifacts and 4401 dual checks PASS`
   - `Clean GitHub Actions numerical replay pending`
 - notes: Not new real customer data or a reproduction of missing pre-v11 pilot inputs. Independent branch, master untouched.
+
+## WC-20261010-v18-manifest-crossenv-semantics - Maintain byte-identical five numeric experiments while comparing environment-dependent manifest semantically
+
+- timestamp: `2026-10-10T05:54:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Full clean-run in Actions 38028747801 reproduced all five substantive JSON files exactly, but sixth run-manifest contained true Python 3.11 versus baseline Python 3.13; raw byte equality is neither expected nor desirable.
+- files:
+  - `papers/coling27-v18-math/math-replay.zip`
+- tests:
+  - `Previous genuine independent replay 38028747801: all five substantive JSON byte comparisons succeeded; run-manifest environment mismatch`
+  - `Corrected semantic-manifest + independent dual gate pending`
+- notes: Preserves actual Python/numpy versions; does not rewrite original frozen baseline inputs.
