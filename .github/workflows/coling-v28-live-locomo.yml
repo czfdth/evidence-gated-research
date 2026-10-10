@@ -1,0 +1,49 @@
+name: COLING v28 hidden-preimage lifecycle and equal-signature cost
+on:
+  push:
+    branches:
+      - experiments/coling-v28-independent-preimages-20261010
+    paths:
+      - 'experiments/build_v28.py'
+      - '.github/workflows/coling-v28-live-locomo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-langchain-v28:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official framework and verifier
+        run: |
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -c 'from importlib.metadata import version; assert version("langchain-core")=="0.3.83"'
+      - name: Build v28 patch and compile
+        run: |
+          python experiments/build_v28.py
+          python -m py_compile experiments/locomo_live_capture_v28.py
+      - name: Actual secret old-value capture before LangChain metadata overwrite
+        run: python experiments/locomo_live_capture_v28.py --mode generate --limit 10 --out locomo_v28_evidence
+      - name: Fresh process independent audit only policy views
+        run: python experiments/locomo_live_capture_v28.py --mode audit --out locomo_v28_evidence
+      - name: Grade against withheld cut oracle
+        run: python experiments/locomo_live_capture_v28.py --mode evaluate --out locomo_v28_evidence
+      - name: Prevent full dataset redistribution
+        if: always()
+        run: |
+          if [ -f locomo_v28_evidence/locomo10.json ]; then sha256sum locomo_v28_evidence/locomo10.json; rm locomo_v28_evidence/locomo10.json; fi
+      - name: Upload original signed receipts and audit logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v28-independent-preimage-native-langchain
+          path: |
+            locomo_v28_evidence/
+            experiments/build_v28.py
+            experiments/locomo_live_capture_v28.py
+          retention-days: 90
+          if-no-files-found: error
