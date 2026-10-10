@@ -1650,3 +1650,17 @@ rewrite historical entries.
   - `Official wheel and installed core completed successfully in run 38027315800`
   - `Corrected installed-core smoke pending`
 - notes: No claim of successful full workflow until GitHub job returns green.
+
+## WC-20261010-coling-v18-real-agent - Run original v18 time-weighted audited two-read retrieval and 24 real LangChain Agent cases in CI
+
+- timestamp: `2026-10-10T05:43:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Strict pinned installed-core source and full synthetic agent scenario from v18, evidence saved even if execution fails. Source payload pinned in Git.
+- files:
+  - `papers/coling27-v18-runtime/v18-runtime.zip`
+  - `.github/workflows/coling-v18-real-agent.yml`
+- tests:
+  - `Source ZIP SHA-256 retained in workflow log; check pending`
+  - `CI real framework and 24-case agent pending`
+- notes: Synthetic agent policy and embeddings; not a genuine autonomous LLM agent. Public GitHub branch only; master unchanged.

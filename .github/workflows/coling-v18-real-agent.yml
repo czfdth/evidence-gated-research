@@ -1,0 +1,82 @@
+name: COLING v18 real pinned audited agent (public evidence)
+on:
+  push:
+    branches:
+      - experiments/coling-v18-real-agent-20261010
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-audit-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Expand frozen v18 runtime sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p v18-runtime
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          p=Path('papers/coling27-v18-runtime/v18-runtime.zip')
+          print('FROZEN_RUNTIME_ZIP_SHA256',__import__('hashlib').sha256(p.read_bytes()).hexdigest())
+          with ZipFile(p) as z:
+              for i in z.infolist():
+                  assert not i.filename.startswith('/') and '..' not in i.filename.split('/'), i.filename
+              z.extractall('v18-runtime')
+          PY
+      - name: Install authentic pinned LangChain with mandatory numerical dependencies
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p wheel-check results/installed-core
+          python -m pip download --no-deps -d wheel-check 'langchain-core==0.3.83'
+          echo '8c92506f8b53fc1958b1c07447f58c5783eb8833dd3cb6dc75607c80891ab1ae  wheel-check/langchain_core-0.3.83-py3-none-any.whl' | sha256sum -c - | tee results/installed-core/wheel-sha256.txt
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -m pip freeze > results/installed-core/pip-freeze.txt
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from importlib.metadata import version
+          assert version('langchain-core')=='0.3.83'
+          assert hashlib.sha256(Path('src/time_weighted_retriever.py').read_bytes()).hexdigest()=='2a55ff628c1d44ebf1faa01008579ac26ed0ae5996daec6dcde3ae4cb9233daa'
+          print('INSTALLED_CORE_AND_SOURCE_HASH_PASS')
+          PY
+      - name: Pinned upstream genuine BaseRetriever.invoke with 2 signed history reads
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u run_installed_core.py --output-dir results/installed-core 2>&1 | tee results/installed-core/runner-stdout.txt
+          python -u experiments/verify_real_run.py --dir results/installed-core 2>&1 | tee results/installed-core/independent-verifier-stdout.txt
+      - name: Genuine LangChain Tool and Runnable 24-case audited Agent
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u experiments/agent_workload.py --backend real --output-dir results/agent-real --episodes 24 2>&1 | tee results/installed-core/agent-stdout.txt
+          python -u experiments/verify_agent_run.py --backend real --dir results/agent-real 2>&1 | tee results/installed-core/agent-independent-verifier.txt
+      - name: Generate reproducibility manifest even if one step fails
+        if: always()
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          mkdir -p results/installed-core results/agent-real
+          python -m pip freeze > results/installed-core/pip-freeze-final.txt
+          python scripts/evidence_manifest.py --dir results/installed-core
+          python scripts/evidence_manifest.py --dir results/agent-real
+      - name: Upload actual signed read and Agent evidence regardless of outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v18-genuine-audited-agent
+          path: |
+            v18-runtime/results/installed-core/
+            v18-runtime/results/agent-real/
+          if-no-files-found: warn
