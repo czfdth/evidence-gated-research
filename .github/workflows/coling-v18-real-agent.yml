@@ -9,7 +9,7 @@ permissions:
 jobs:
   real-audit-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,15 +62,32 @@ jobs:
           set -euo pipefail
           python -u experiments/agent_workload.py --backend real --output-dir results/agent-real --episodes 24 2>&1 | tee results/installed-core/agent-stdout.txt
           python -u experiments/verify_agent_run.py --backend real --dir results/agent-real 2>&1 | tee results/installed-core/agent-independent-verifier.txt
+      - name: Install small authentic open-weight instruction LLM (CPU)
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results/llm-openweight-v18
+          python -m pip install 'torch==2.5.1' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'transformers==4.48.3' 'safetensors>=0.4'
+          python -m pip freeze > results/llm-openweight-v18/inference-pip-freeze.txt
+      - name: Generate 48 real open-weight model outputs from 24 paired Agent trajectories
+        working-directory: v18-runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u experiments/openweight_llm_eval_v18.py --traces results/agent-real --output-dir results/llm-openweight-v18 --episodes 24 2>&1 | tee results/llm-openweight-v18/inference-stdout.txt
+          python -u experiments/verify_openweight_llm_v18.py --traces results/agent-real --dir results/llm-openweight-v18 --out results/llm-openweight-v18/independent-paired-analysis.json 2>&1 | tee results/llm-openweight-v18/independent-verifier-stdout.txt
       - name: Generate reproducibility manifest even if one step fails
         if: always()
         working-directory: v18-runtime
         shell: bash
         run: |
-          mkdir -p results/installed-core results/agent-real
+          mkdir -p results/installed-core results/agent-real results/llm-openweight-v18
           python -m pip freeze > results/installed-core/pip-freeze-final.txt
           python scripts/evidence_manifest.py --dir results/installed-core
           python scripts/evidence_manifest.py --dir results/agent-real
+          python scripts/evidence_manifest.py --dir results/llm-openweight-v18
       - name: Upload actual signed read and Agent evidence regardless of outcome
         if: always()
         uses: actions/upload-artifact@v4
@@ -79,4 +96,5 @@ jobs:
           path: |
             v18-runtime/results/installed-core/
             v18-runtime/results/agent-real/
+            v18-runtime/results/llm-openweight-v18/
           if-no-files-found: warn

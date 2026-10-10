@@ -1690,3 +1690,17 @@ rewrite historical entries.
   - `real LangChain two-read runner succeeded in Actions 38027694447`
   - `Independent verifier previously rejected misleading class report; fix pending`
 - notes: Avoids weakening independent verifier; adds concrete subclass reporting field.
+
+## WC-20261010-v18-live-openweight-llm - Extend full genuine LangChain v18 audit with 24-pair actual open-weight model generation
+
+- timestamp: `2026-10-10T05:56:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: The real pinned two-read ledger and 24 real LangChain Agent paths succeeded in Actions 38027777798. Run a public open-weight instruction model on verified trajectories, preserving raw generated tokens, signed trace references, model revision, hash, and paired independent analysis without API keys.
+- files:
+  - `.github/workflows/coling-v18-real-agent.yml`
+  - `papers/coling27-v18-runtime/v18-runtime.zip`
+- tests:
+  - `Actions run 38027777798: full official LangChain audit + 24 Agents PASS`
+  - `True open-weight LLM run pending; never count mocked transport`
+- notes: Uses SmolLM2-135M-Instruct on CPU; not OpenAI GPT nor autonomous model tool routing; clearly separate result type.
