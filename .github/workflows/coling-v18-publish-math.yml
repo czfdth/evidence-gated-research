@@ -1,0 +1,74 @@
+name: Preserve COLING independent 4401-certificate math replay as public release
+on:
+  push:
+    branches:
+      - experiments/coling-v18-publish-math-20261010
+permissions:
+  contents: write
+  actions: read
+jobs:
+  archive-full-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original completed success and download original mathematical evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh run view 38028903450 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" == "success" ]]
+          mkdir -p evidence-math
+          gh run download 38028903450 --repo "$GITHUB_REPOSITORY" --name coling-v18-full-math-replay --dir evidence-math
+      - name: Independently verify downloaded original receipts and make checksum-locked archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,zipfile
+          from pathlib import Path
+          e=Path('evidence-math')
+          r=json.loads((e/'deterministic-replay.json').read_text())
+          assert r['status']=='PASS_SUBSTANTIVE_BYTES_AND_MANIFEST_SEMANTICS'
+          assert r['matching_substantive_json_count']==5
+          cert=(e/'all-4401-certificates.txt').read_text()
+          c=json.loads(cert)
+          assert c['status']=='PASS_ALL_4401_DECIMAL_NEGATIVE_CERTIFICATES' and c['checked']==4401
+          a=json.loads((e/'main-artifact-verifier.txt').read_text())
+          assert a['status']=='PASS_RECONSTRUCTED_EXPERIMENT_ARTIFACTS'
+          u=(e/'reconstruction-unit-tests.txt').read_text()
+          assert 'Ran 8 tests' in u and 'OK' in u
+          provenance={'source_run':'https://github.com/czfdth/evidence-gated-research/actions/runs/38028903450',
+            'source_commit':'6a24c391e78db6544fe3158b524f966412453b96',
+            'classification':'New v11 synthetic experiment reconstruction, not original missing pilot raw data',
+            'numerical_files_byte_equal':5,
+            'environment_manifest':'semantically checked, OS and Python metadata authentically different',
+            'all_negative_certificates_decimal_verified':4401}
+          (e/'PUBLIC_NUMERICAL_REPLAY_PROVENANCE.json').write_text(json.dumps(provenance,indent=2)+'\n')
+          target=Path('coling-v18-math-replay-evidence.zip')
+          with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(e.rglob('*')):
+                  if p.is_file():z.write(p,str(p))
+          h=hashlib.sha256(target.read_bytes()).hexdigest()
+          Path(str(target)+'.sha256').write_text(h+'  '+target.name+'\n')
+          print('VALID_MATH_ARCHIVE_SHA256',h,'FILES',len(list(e.glob('*'))))
+          PY
+      - name: Upload frozen numerical evidence to genuine Qwen public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload coling-v18-real-qwen-evidence-38028219354 coling-v18-math-replay-evidence.zip coling-v18-math-replay-evidence.zip.sha256 --repo "$GITHUB_REPOSITORY"
+      - name: Save upload check and checksum regardless of status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v18-public-math-check
+          path: |
+            evidence-math/PUBLIC_NUMERICAL_REPLAY_PROVENANCE.json
+            coling-v18-math-replay-evidence.zip.sha256
+          if-no-files-found: warn

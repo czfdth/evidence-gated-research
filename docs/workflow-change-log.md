@@ -1744,3 +1744,16 @@ rewrite historical entries.
   - `Previous genuine independent replay 38028747801: all five substantive JSON byte comparisons succeeded; run-manifest environment mismatch`
   - `Corrected semantic-manifest + independent dual gate pending`
 - notes: Preserves actual Python/numpy versions; does not rewrite original frozen baseline inputs.
+
+## WC-20261010-coling-math-permanent-archive - Publish externally rerun COLING mathematics and full 4401 dual receipts as permanent public evidence
+
+- timestamp: `2026-10-10T05:59:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Clean GitHub Action 38028903450 completed 5 exact numeric JSON matches and semantically preserved manifest, independent 4401 Decimal certificates, eight unit tests; initial artifacts expire.
+- files:
+  - `.github/workflows/coling-v18-publish-math.yml`
+- tests:
+  - `Math rerun 38028903450 success`
+  - `Archive public GitHub workflow pending`
+- notes: Reconstructed author-synthetic workloads, not recovered pilot raw data.
