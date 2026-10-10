@@ -1611,3 +1611,16 @@ rewrite historical entries.
   - `Local Python syntax check passed (earlier kit)`
   - `GitHub Actions pending; not yet executed`
 - notes: Standalone smoke tests, not full COLING main experiment.
+
+## WC-20261010-coling-fix-workflow-parse - Simplify isolated smoke workflow after GitHub rejected initial workflow before scheduling jobs
+
+- timestamp: `2026-10-10T05:24:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Observed Actions run 38027179017 completed failure with zero jobs; remove optional release job to isolate validation, retain artifact uploads.
+- files:
+  - `.github/workflows/coling-real-core-smoke.yml`
+- tests:
+  - `GitHub Actions run 38027179017 failed before any jobs`
+  - `Revised workflow rerun pending`
+- notes: Raw artifacts will be retained as Actions artifacts; no release automatically created in this diagnostic revision.
