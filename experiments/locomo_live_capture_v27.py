@@ -68,7 +68,7 @@ def generate(root,limit):
     time.sleep(3*(attempt+1))
  assert h(dfile.read_bytes())==HASH
  dataset=json.loads(dfile.read_text());assert len(dataset)==10
- protocol={"dataset_url":URL,"dataset_sha256":HASH,"license":"CC BY-NC 4.0","version":version("langchain-core"),"actual_calls":"InMemoryVectorStore.add_documents and BaseRetriever.invoke","selector":"hashed lexical cosine + 0.36*importance","changed_field":"importance","immutable_content":True,"data_scope":"natural LoCoMo QA, partly unsupported by 24-slot fixture","known_limitations":"ephemeral signer, synthetic metadata salience, known candidate IDs; no external attestation or database atomicity"}
+ protocol={"dataset_url":URL,"dataset_sha256":HASH,"license":"CC BY-NC 4.0","version":version("langchain-core"),"actual_calls":"InMemoryVectorStore.add_documents and BaseRetriever.invoke","selector":"hashed lexical cosine + 0.36*importance","changed_field":"importance","immutable_content":True,"data_scope":"natural LoCoMo QA, partly unsupported by 24-slot fixture","known_limitations":"ephemeral signer, synthetic metadata salience, known candidate IDs; audit views logically isolated per strategy but complete research package exposes all counterfactuals; no external attestation or database atomicity"}
  save(root/"protocol.json",protocol)
  generated=[];first_pub=None
  for cno,sample in enumerate(dataset[:limit]):
@@ -99,12 +99,17 @@ def generate(root,limit):
   log=Ledger(base/"events.jsonl")
   public=log.pub();(base/"public-key.b64").write_text(public+"\n")
   log.put("CUT",catalog={"ids":ids,"text_sha256":{id:h(content[id].encode()) for id in ids},"domain":[0,1],"updated_ids":ids[:E],"plans":plans,"beta":BETA})
-  log.put("FULL_SNAPSHOT",old_importance=old)
+  capture_dir=base/"capture_views";capture_dir.mkdir()
+  def write_receipt(policy,payload):
+   envelope={"payload":payload,"sig":base64.b64encode(log.sk.sign(enc(payload))).decode()}
+   with (capture_dir/(policy+".jsonl")).open("ab") as f:
+    f.write(enc(envelope)+b"\n");f.flush();os.fsync(f.fileno())
+  write_receipt("full_snapshot",{"kind":"SNAPSHOT","old_importance":old,"ns":time.time_ns(),"policy":"full_snapshot"})
   updates=[]
   for i in range(E):
    id=ids[i];new=round((len(t[len(t)//2+i]["text"])%19+1)/21,3)
    for p,keep in plans.items():
-    if id in keep:log.put("PREWRITE",policy=p,id=id,old=old[id])
+    if id in keep:write_receipt(p,{"kind":"PREWRITE","policy":p,"id":id,"old":old[id],"write_index":i,"ns":time.time_ns()})
    # Actual LangChain overwrite, AFTER signed preimage fsync.
    store.add_documents([Document(id=id,page_content=content[id],metadata={"slot":id,"importance":new})],ids=[id])
    updated={d.metadata["slot"]:d.metadata["importance"] for d,_ in store.similarity_search_with_relevance_scores(content[id],k=K)}
@@ -138,7 +143,8 @@ def audit(root):
    vk.verify(base64.b64decode(x["sig"]),enc(x["payload"]))
    assert x["payload"]["seq"]==i
    ev.append(x["payload"])
-  cat=ev[0]["catalog"];assert ev[0]["kind"]=="CUT" and ev[1]["kind"]=="FULL_SNAPSHOT"
+  cat=ev[0]["catalog"];assert ev[0]["kind"]=="CUT"
+  assert not any(x["kind"] in ("PREWRITE","FULL_SNAPSHOT") for x in ev),"leaked old values in public event ledger"
   post=json.loads((base/"post.json").read_text());qs=json.loads((base/"questions.json").read_text())
   assert len(post)==len(cat["ids"]) and h(enc(post))==next(e["post_hash"] for e in ev if e["kind"]=="POST")
   assert h(enc(qs))==next(e["question_hash"] for e in ev if e["kind"]=="POST")
@@ -146,12 +152,6 @@ def audit(root):
   writes={e["id"]:e for e in ev if e["kind"]=="WRITE"}
   assert set(writes)==set(cat["updated_ids"])
   for id,e in writes.items():assert post[id]["importance"]==e["new"]
-  caps={}
-  for e in ev:
-   if e["kind"]=="PREWRITE":
-    tup=(e["policy"],e["id"])
-    assert tup not in caps and e["seq"]<writes[e["id"]]["seq"]
-    caps[tup]=e["old"]
   signed_reads={str(e["qid"]):e for e in ev if e["kind"]=="READ"}
   assert len(signed_reads)==len(qs)
   for q in qs:assert signed_reads[str(q["qid"])]["question_hash"]==h(q["question"].encode())
@@ -159,9 +159,22 @@ def audit(root):
   shared=sum(len(enc(x))+1 for x in raw if x["payload"]["kind"] in ("CUT","WRITE","POST","READ"))
   shared+=(base/"post.json").stat().st_size+(base/"questions.json").stat().st_size
   for name,captured in {**cat["plans"],"full_snapshot":cat["ids"]}.items():
-   old=ev[1]["old_importance"] if name=="full_snapshot" else {id:caps[(name,id)] for id in captured}
-   if name!="full_snapshot":assert {(p,id) for p,id in caps if p==name}=={(name,id) for id in captured}
-   b=len(enc(raw[1]))+1 if name=="full_snapshot" else sum(len(enc(x))+1 for x in raw if x["payload"]["kind"]=="PREWRITE" and x["payload"]["policy"]==name)
+   # Each proof view reads ONLY its own signed old values, never other policies.
+   receipt_file=base/"capture_views"/(name+".jsonl")
+   raw_caps=[json.loads(line) for line in receipt_file.read_text().splitlines()] if receipt_file.exists() else []
+   caps=[]
+   for env in raw_caps:
+    vk.verify(base64.b64decode(env["sig"]),enc(env["payload"]))
+    caps.append(env["payload"])
+   if name=="full_snapshot":
+    assert len(caps)==1 and caps[0]["kind"]=="SNAPSHOT" and caps[0]["policy"]==name
+    assert caps[0]["ns"]<min(x["ns"] for x in writes.values())
+    old=caps[0]["old_importance"]
+   else:
+    assert {r["id"] for r in caps}==set(captured)
+    assert all(r["kind"]=="PREWRITE" and r["policy"]==name and r["ns"]<writes[r["id"]]["ns"] for r in caps)
+    old={r["id"]:r["old"] for r in caps}
+   b=receipt_file.stat().st_size if receipt_file.exists() else 0
    counter=Counter();vv=[]
    for q in qs:
     claim=signed_reads[str(q["qid"])]["selected"];sc=[]
