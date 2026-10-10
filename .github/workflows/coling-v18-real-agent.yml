@@ -76,8 +76,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -u experiments/openweight_llm_eval_v18.py --traces results/agent-real --output-dir results/llm-openweight-v18 --episodes 24 2>&1 | tee results/llm-openweight-v18/inference-stdout.txt
-          python -u experiments/verify_openweight_llm_v18.py --traces results/agent-real --dir results/llm-openweight-v18 --out results/llm-openweight-v18/independent-paired-analysis.json 2>&1 | tee results/llm-openweight-v18/independent-verifier-stdout.txt
+          python -u experiments/openweight_llm_eval_v18.py --traces results/agent-real --output-dir results/llm-openweight-v18 --model Qwen/Qwen2.5-0.5B-Instruct --episodes 24 2>&1 | tee results/llm-openweight-v18/inference-stdout.txt
+          python -u -m experiments.verify_openweight_llm_v18 --traces results/agent-real --dir results/llm-openweight-v18 --out results/llm-openweight-v18/independent-paired-analysis.json 2>&1 | tee results/llm-openweight-v18/independent-verifier-stdout.txt
       - name: Generate reproducibility manifest even if one step fails
         if: always()
         working-directory: v18-runtime

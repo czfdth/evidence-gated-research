@@ -1704,3 +1704,16 @@ rewrite historical entries.
   - `Actions run 38027777798: full official LangChain audit + 24 Agents PASS`
   - `True open-weight LLM run pending; never count mocked transport`
 - notes: Uses SmolLM2-135M-Instruct on CPU; not OpenAI GPT nor autonomous model tool routing; clearly separate result type.
+
+## WC-20261010-v18-openweight-model-retry - Run full verified LangChain agent paired experiment with larger real Qwen 0.5B model
+
+- timestamp: `2026-10-10T05:41:00Z`
+- status: `pending`
+- author: `ChatGPT`
+- reason: Actions 38027941813 ran 48 real SmolLM2-135M generations, independently verified offline: all 48 invalid JSON; CI failed because the verifier was started as a file rather than module. Retain that archived negative result and run a stronger model with the identical fixed prompt/decision parser, using module invocation for verifier.
+- files:
+  - `.github/workflows/coling-v18-real-agent.yml`
+- tests:
+  - `Previous 48 actual SmolLM2 outputs independently checked, 48/48 invalid`
+  - `Qwen true model run pending`
+- notes: Exploratory cross-model comparison; do not treat invalid outputs as safe; no hosted API.
