@@ -1,0 +1,103 @@
+name: Pinned RobustRAG with DashScope API (original voting and keyword algorithms)
+on:
+  push:
+    branches: [retrieval-qa-robustness-ci-smoke]
+    paths:
+      - '.github/workflows/robustrag-dashscope.yml'
+      - 'tools/robustrag_dashscope_reproduce.py'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of public RealtimeQA questions (1-20)"
+        required: false
+        default: "1"
+        type: choice
+        options: ["1","2","5","10","20"]
+      methods:
+        description: "Which original defense algorithms to execute"
+        required: false
+        default: "voting"
+        type: choice
+        options: ["voting","keyword","voting,keyword"]
+      attacks:
+        description: "Original threat models"
+        required: false
+        default: "clean,PIA,Poison"
+        type: choice
+        options: ["clean","clean,PIA,Poison"]
+permissions:
+  contents: read
+jobs:
+  original-robustrag-dashscope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+      TOKENIZERS_PARALLELISM: 'false'
+      OPENBLAS_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax validation
+        run: python -m py_compile tools/robustrag_dashscope_reproduce.py
+      - name: Install original NLP extraction dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "spacy>=3.8,<3.9" "nltk>=3.9,<4" "numpy<3"
+          python -m spacy download en_core_web_sm
+          python - <<'PY'
+          import nltk
+          assert nltk.download('stopwords', quiet=True)
+          PY
+      - name: Fetch pinned original RobustRAG code and reference dataset
+        run: git clone --depth 1 https://github.com/inspire-group/RobustRAG.git upstream-RobustRAG
+      - name: Verify original classes, source blobs, data and GPT templates WITHOUT key
+        run: |
+          python tools/robustrag_dashscope_reproduce.py --upstream upstream-RobustRAG --preflight-only
+      - name: Verify securely provisioned model API key
+        shell: bash
+        run: |
+          if [ -z "${DASHSCOPE_API_KEY}" ]; then
+            echo "::error::DASHSCOPE_API_KEY GitHub Actions secret is missing. Add a NEW ROTATED key in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "API credential present via encrypted GitHub Secret; secret not printed"
+      - name: Execute real DashScope API model on original algorithms and attacks
+        env:
+          LIMIT: ${{ inputs.limit || '1' }}
+          METHODS: ${{ inputs.methods || 'voting' }}
+          ATTACKS: ${{ inputs.attacks || 'clean,PIA,Poison' }}
+        run: |
+          python tools/robustrag_dashscope_reproduce.py \
+            --upstream upstream-RobustRAG --api-base https://dashscope.aliyuncs.com/compatible-mode/v1 \
+            --model qwen-plus --limit "$LIMIT" --top-k 10 --corruption-size 1 \
+            --methods "$METHODS" --attacks "$ATTACKS" --max-api-calls 400 \
+            --output results/dashscope-robustrag
+      - name: Independent result consistency checks
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('results/dashscope-robustrag')
+          meta=json.loads((p/'metadata.json').read_text())
+          rows=json.loads((p/'rows.json').read_text())
+          summaries=json.loads((p/'summary.json').read_text())
+          calls=json.loads((p/'model_calls.json').read_text())
+          assert meta['real_provider_api'] is True and meta['full_original_system_reproduction'] is False
+          assert meta['backend_stats']['api_requests']>0
+          assert meta['backend_stats']['logical_requests']==len(calls)
+          for s in summaries:
+              xs=[r for r in rows if (r['method'],r['attack'])==(s['method'],s['attack'])]
+              assert len(xs)==s['n']
+              assert abs(sum(x['correct'] for x in xs)/len(xs)-s['accuracy'])<1e-12
+          print(f"PASS: {len(rows)} authentic per-case results, {meta['backend_stats']['api_requests']} provider API requests")
+          PY
+      - name: Archive experimental evidence; never archive secrets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-pinned-robustrag-dashscope-original-algorithms
+          path: results/dashscope-robustrag/
+          if-no-files-found: warn
+          retention-days: 7
