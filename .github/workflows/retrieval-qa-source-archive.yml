@@ -15,6 +15,8 @@ jobs:
       - run: |
           mkdir -p qa-source
           cp tools/retrieval_qa_voting_smoke.py qa-source/
+          git show 0bfff07467ee0a9602e7626142cc96163bff757f:tools/robustrag_dashscope_reproduce.py > qa-source/robustrag_dashscope_exact_10qa.py
+          sha256sum qa-source/robustrag_dashscope_exact_10qa.py > qa-source/API_SOURCE_SHA256.txt
           git rev-parse HEAD > qa-source/SOURCE_COMMIT.txt
           git hash-object tools/retrieval_qa_voting_smoke.py > qa-source/SOURCE_BLOB.txt
           sha256sum tools/retrieval_qa_voting_smoke.py > qa-source/SOURCE_SHA256.txt
