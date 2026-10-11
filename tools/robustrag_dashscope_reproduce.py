@@ -158,6 +158,16 @@ def run(args):
         raise ValueError("Invalid limit or API call limit")
     root=Path(args.upstream)
     g,templates=make_originals(root)
+    if args.preflight_only:
+        data=json.loads((root/"data/realtimeqa.json").read_text("utf-8"))
+        required=("qa","qa-mc","qa-hint")
+        missing=[k for k in required if k not in templates]
+        if missing: raise RuntimeError("Missing original GPT prompt modes: "+str(missing))
+        print(json.dumps({"preflight":"PASS","original_classes":
+          ["DataUtils","RealtimeQA","BaseModel","PIA","Poison","RRAG","MajorityVoting","KeywordAgg"],
+          "reference_dataset_records":len(data),"source_pins":EXPECTED_BLOBS,
+          "secret_used":False,"model_calls":0},indent=2))
+        return 0
     model=DashScopeBackend(args.model,args.api_base,args.max_api_calls)
     model.prompt_template=templates
     # Unmodified upstream BaseModel.wrap_prompt.
@@ -249,6 +259,7 @@ def run(args):
 
 if __name__=="__main__":
     p=argparse.ArgumentParser()
+    p.add_argument("--preflight-only",action="store_true",help="Validate original source, classes, dataset and templates without a secret or model API call")
     p.add_argument("--upstream",default="upstream-RobustRAG")
     p.add_argument("--api-base",default=API_BASE_DEFAULT)
     p.add_argument("--model",default="qwen-plus")
