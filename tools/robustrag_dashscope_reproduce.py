@@ -32,8 +32,6 @@ EXPECTED_BLOBS = {
     "src/prompt_template.py": "80b7382c59192a124454d0a5a6c709b86b839237",
 }
 # A fixed source hash is checked before ANY original node is executed.
-# A typo in the pinned models SHA above would correctly fail closed.
-EXPECTED_BLOBS["src/models.py"]="7d9ad2b483a2e7a09bce40cc7f0c490a8893592a"
 API_BASE_DEFAULT = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 def blob_sha(p):
