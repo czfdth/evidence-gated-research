@@ -1,0 +1,63 @@
+name: Public-data QA voting real inference smoke
+
+on:
+  push:
+    branches: [retrieval-qa-robustness-ci-smoke]
+    paths:
+      - '.github/workflows/retrieval-qa-robustness-ci-smoke.yml'
+      - 'tools/retrieval_qa_voting_smoke.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-qwen-voting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      OMP_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax preflight
+        run: python -m py_compile tools/retrieval_qa_voting_smoke.py
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install transformers==4.45.2 safetensors sentencepiece
+      - name: Clone open RobustRAG reference, check exact source blob
+        run: |
+          git clone --depth 1 https://github.com/inspire-group/RobustRAG.git upstream-RobustRAG
+          actual=$(git -C upstream-RobustRAG rev-parse HEAD:src/defense.py)
+          echo "RobustRAG source SHA = $actual"
+          test "$actual" = "dcebedf9d7629963e6cd2998426243d92ac0252f"
+      - name: Model inference on one public RealtimeQA example
+        run: |
+          python tools/retrieval_qa_voting_smoke.py \
+            --upstream upstream-RobustRAG --limit 1 --top-k 10 --groups 5 \
+            --output results/retrieval-qa-voting-smoke
+      - name: Verify measured results
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('results/retrieval-qa-voting-smoke')
+          assert (p/'REAL_MODEL_RUN_COMPLETED.txt').exists()
+          meta=json.loads((p/'run_metadata.json').read_text())
+          assert meta['is_real_model_inference'] and meta['model_calls']['model_requests']>0
+          assert len(json.loads((p/'per_query.json').read_text()))==3
+          print(json.dumps(meta['model_calls'],indent=2))
+          PY
+      - name: Save genuine outputs (public RealtimeQA only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-qa-real-qwen-voting-smoke
+          path: results/retrieval-qa-voting-smoke/
+          if-no-files-found: warn
+          retention-days: 7
