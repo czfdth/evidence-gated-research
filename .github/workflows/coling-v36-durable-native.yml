@@ -32,7 +32,7 @@ jobs:
       - name: Full SQLite crash and expiry tests, subprocess enforced
         run: python -m unittest discover -s tests -p 'test_durable_audit_v36.py' -v
       - name: Native read, durable transaction and recover after each cut
-        run: python experiments/run_durable_native_v36.py --upstream src/time_weighted_retriever_v29.py --out results/v36-durable-native
+        run: PYTHONPATH=. python experiments/run_durable_native_v36.py --upstream src/time_weighted_retriever_v29.py --out results/v36-durable-native
       - name: SQLite integrity and public-only evidence
         run: |
           python - <<'PY'
