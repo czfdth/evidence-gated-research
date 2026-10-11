@@ -1,0 +1,63 @@
+name: COLING v36 pinned native SQLite crash recovery and retention
+on:
+  push:
+    branches:
+      - experiments/coling-v36-durable-sqlite-20261011
+    paths:
+      - '.github/workflows/coling-v36-durable-native.yml'
+      - 'experiments/durable_audit_v36.py'
+      - 'experiments/run_durable_native_v36.py'
+      - 'tests/test_durable_audit_v36.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  durable-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned actual LangChain Core and support dependencies
+        run: |
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -c 'from importlib.metadata import version; assert version("langchain-core")=="0.3.83"'
+      - name: Pin immutable original retriever source
+        run: |
+          mkdir -p src
+          curl --fail --location --retry 3 --silent --show-error https://raw.githubusercontent.com/langchain-ai/langchain/bdf1cd383ce36dc18381a3bf3fb0a579337a32b5/libs/langchain/langchain/retrievers/time_weighted_retriever.py -o src/time_weighted_retriever_v29.py
+          echo '2a55ff628c1d44ebf1faa01008579ac26ed0ae5996daec6dcde3ae4cb9233daa  src/time_weighted_retriever_v29.py' | sha256sum --check
+      - name: Full SQLite crash and expiry tests, subprocess enforced
+        run: python -m unittest discover -s tests -p 'test_durable_audit_v36.py' -v
+      - name: Native read, durable transaction and recover after each cut
+        run: python experiments/run_durable_native_v36.py --upstream src/time_weighted_retriever_v29.py --out results/v36-durable-native
+      - name: SQLite integrity and public-only evidence
+        run: |
+          python - <<'PY'
+          import sqlite3,json
+          from pathlib import Path
+          d=Path('results/v36-durable-native/working-database/audit.sqlite3')
+          c=sqlite3.connect(d)
+          assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          r=json.loads(Path('results/v36-durable-native/native-results.json').read_text())
+          assert r['summary']['serial_native_reads']==16
+          assert r['summary']['signatures']['events']>0
+          print('V36_NATIVE_RECOVERY_PASS',r['summary']['persisted_counts'])
+          PY
+          # Signer is only a disposable local test key and must not be distributed as audit authority
+          rm results/v36-durable-native/working-database/signer.key
+      - name: Preserve hosted original reports and source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v36-pinned-sqlite-durable-native
+          path: |
+            results/v36-durable-native/
+            experiments/durable_audit_v36.py
+            experiments/run_durable_native_v36.py
+            tests/test_durable_audit_v36.py
+            src/time_weighted_retriever_v29.py
+          retention-days: 90
+          if-no-files-found: warn
