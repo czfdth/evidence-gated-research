@@ -88,6 +88,20 @@ def generate(out,upstream):
  assert hidden["world0"]["cut_equivalent"]!=hidden["world1"]["cut_equivalent"]
  assert hidden["world0"]["actual_read"]==hidden["world1"]["actual_read"]
  save(secret/"oracle-labels.json",hidden)
+ # Strict physical P isolation: no_capture folders contain no authenticated old access.
+ # Each one_capture folder receives exactly its own one value and no foreign-world preimage.
+ isolated=out/"isolated_views"
+ for policy in ("no_capture","one_capture"):
+  for name in ("world0","world1"):
+   src=views/name
+   dest=isolated/policy/name;dest.mkdir(parents=True,exist_ok=True)
+   for filename in ("catalog.json","observed-state.json","public-ledger.jsonl"):
+    shutil.copy2(src/filename,dest/filename)
+   if policy=="one_capture":
+    shutil.copy2(src/"capture-C-last-access.jsonl",dest/"capture-C-last-access.jsonl")
+   else:
+    assert sorted(x.name for x in dest.iterdir())==["catalog.json","observed-state.json","public-ledger.jsonl"]
+ shutil.rmtree(views)
  save(out/"public-proof-summary.json",{"public_signed_ledger_byte_equal":True,
   "catalog_byte_equal":True,"post_rollback_byte_equal":True,
   "private_capture_distinguishes":True,
@@ -99,7 +113,11 @@ def audit(out):
  """Auditor reads one view root only. No oracle files are opened."""
  status={}
  for name in ("world0","world1"):
-  root=out/"auditor_views"/name
+  root=out/"isolated_views"/"no_capture"/name
+  captured_root=out/"isolated_views"/"one_capture"/name
+  assert not (root/"capture-C-last-access.jsonl").exists()
+  for filename in ("catalog.json","observed-state.json","public-ledger.jsonl"):
+   assert (root/filename).read_bytes()==(captured_root/filename).read_bytes()
   catalog=json.loads((root/"catalog.json").read_text())
   obs=json.loads((root/"observed-state.json").read_text())
   cut_id=catalog["cut_id"];pub=catalog["signed_by_public_key"];digest=dig(enc(catalog))
@@ -118,7 +136,7 @@ def audit(out):
   possible=[set(cut_reference(v))==set(obs["selected"]) for v in vals]
   no_capture=("ACCEPT" if all(possible) else "CUT-MISMATCH" if not any(possible) else "UNVERIFIABLE")
   assert no_capture=="UNVERIFIABLE"
-  capture=verify_plain(root/"capture-C-last-access.jsonl",pub)
+  capture=verify_plain(captured_root/"capture-C-last-access.jsonl",pub)
   assert len(capture)==1
   item=capture[0]
   assert item["kind"]=="PREIMAGE" and item["cut_id"]==cut_id
