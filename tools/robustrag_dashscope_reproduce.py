@@ -27,8 +27,8 @@ EXPECTED_BLOBS = {
     "src/defense.py": "dcebedf9d7629963e6cd2998426243d92ac0252f",
     "src/attack.py": "9d56cc97e2a4fb2e2fa10b24bfb46c96c944f642",
     "src/dataset_utils.py": "c2c53c26ad9529d1d47e9622023fd3a10f478f81",
-    "src/helper.py": "7c134df5c8f2de7c139af746cf5c2922a306b33",
-    "src/models.py": "7d9ad2b483a2e7a09bce40cc7f0c490a8893592a",
+    "src/helper.py": "7c134df5c8f2de7c139af746cf5c2922a306b33d",
+    "src/models.py": "7d9ad2b483a2e7a09bce40ccf07c490a8893592a",
     "src/prompt_template.py": "80b7382c59192a124454d0a5a6c709b86b839237",
 }
 # A fixed source hash is checked before ANY original node is executed.
