@@ -152,7 +152,7 @@ def make_originals(root):
     return g, prompt_templates(root)
 
 def run(args):
-    if args.limit<1 or args.limit>100 or args.max_api_calls<1 or args.max_api_calls>5000:
+    if args.limit<1 or args.limit>100 or args.eligible_offset<0 or args.max_api_calls<1 or args.max_api_calls>5000:
         raise ValueError("Invalid limit or API call limit")
     root=Path(args.upstream)
     g,templates=make_originals(root)
@@ -204,6 +204,7 @@ def run(args):
     data_path=root/"data/realtimeqa.json"
     data=json.loads(data_path.read_text("utf-8"))
     chosen=[]
+    qualified_seen=0
     for ix,datum in enumerate(data):
         if not isinstance(datum.get("choices"),list) or len(datum["choices"])!=4:continue
         try:
@@ -212,6 +213,8 @@ def run(args):
         if len(datum.get("context",[]))<args.top_k:continue
         if not isinstance(datum.get("incorrect answer"),str):continue
         if not datum.get("incorrect_context"):continue
+        qualified_seen += 1
+        if qualified_seen <= args.eligible_offset: continue
         chosen.append((ix,datum))
         if len(chosen)>=args.limit:break
     if len(chosen)<args.limit: raise RuntimeError(f"Only {len(chosen)} eligible samples")
@@ -276,7 +279,7 @@ def run(args):
         full_original_system_reproduction=False,
         original_decoding_aggregation_executed=False,
         original_training_or_Mistral_Llama_executed=False,
-        backend_stats=model.counters(),selection=f"first {len(chosen)} eligible records",
+        backend_stats=model.counters(),selection=f"eligible offset {args.eligible_offset}, count {len(chosen)}",
         scope="original class AST and original RealtimeQA processor, API backend; no live retriever",
         caution="Certificates concern upstream assumptions and source correctness evaluation; not proof of actual LLM safety.")
     (output/"rows.json").write_text(json.dumps(rows,indent=2),encoding="utf-8")
@@ -294,6 +297,7 @@ if __name__=="__main__":
     p.add_argument("--api-base",default=API_BASE_DEFAULT)
     p.add_argument("--model",default="qwen-plus")
     p.add_argument("--limit",type=int,default=1)
+    p.add_argument("--eligible-offset",type=int,default=0,help="Skip this many qualifying public RealtimeQA items; avoids re-paying for earlier samples")
     p.add_argument("--top-k",type=int,default=10)
     p.add_argument("--corruption-size",type=int,default=1)
     p.add_argument("--repeat",type=int,default=3)
