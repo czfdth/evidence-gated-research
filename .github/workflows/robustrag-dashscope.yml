@@ -11,7 +11,7 @@ on:
       limit:
         description: "Number of public RealtimeQA questions (1-20)"
         required: false
-        default: "1"
+        default: "10"
         type: choice
         options: ["1","2","5","10","20"]
       methods:
@@ -69,7 +69,7 @@ jobs:
           echo "API credential present via encrypted GitHub Secret; secret not printed"
       - name: Execute real DashScope API model on original algorithms and attacks
         env:
-          LIMIT: ${{ inputs.limit || '1' }}
+          LIMIT: ${{ inputs.limit || '10' }}
           METHODS: ${{ inputs.methods || 'voting,keyword' }}
           ATTACKS: ${{ inputs.attacks || 'clean,PIA,Poison' }}
         run: |
