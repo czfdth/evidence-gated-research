@@ -31,7 +31,11 @@ class Index:
         x=self.db.execute('SELECT * FROM revision ORDER BY version DESC LIMIT 1').fetchone()
         return {'version':x['version'],'payload_hash':x['payload_hash']} if x else {'version':-1,'payload_hash':None}
     def snapshot(self):
-        return {r['id']:{'text':r['text'],'importance':r['importance'],'last_accessed_at':r['last_accessed_at'],'buffer_idx':r['buffer_idx']} for r in self.db.execute('SELECT * FROM docs ORDER BY buffer_idx')}
+        out={}
+        for r in self.db.execute('SELECT * FROM docs ORDER BY buffer_idx'):
+            if json.loads(r['embedding'])!=vec(r['text']):raise ValueError('persistent vector embedding differs from pinned text embedding')
+            out[r['id']]={'text':r['text'],'importance':r['importance'],'last_accessed_at':r['last_accessed_at'],'buffer_idx':r['buffer_idx']}
+        return out
     def apply(self,obj):
         version=obj['version'];state=obj['state'];h=obj['payload_hash'];oid=obj['operation_id']
         if digest(state)!=h or version<0:raise ValueError('bad state digest or version')
@@ -58,6 +62,7 @@ class Index:
         if obj.get('inject')=='service_post_commit':os._exit(91)
         return self.revision()
     def search(self,query,k):
+        self.snapshot() # Verify persisted vector rows, not only metadata/revision.
         q=vec(query);ranked=[]
         for r in self.db.execute('SELECT id,text,importance,last_accessed_at,embedding,buffer_idx FROM docs'):
             score=sum(a*b for a,b in zip(q,json.loads(r['embedding'])))
@@ -71,7 +76,9 @@ class Handler(BaseHTTPRequestHandler):
         data=canon(obj).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_GET(self):
         if self.path=='/health':self.respond({'status':'ok',**self.index.revision()})
-        elif self.path=='/state':self.respond({'revision':self.index.revision(),'state':self.index.snapshot()})
+        elif self.path=='/state':
+            try:self.respond({'revision':self.index.revision(),'state':self.index.snapshot()})
+            except (ValueError,KeyError,TypeError) as e:self.respond({'error':str(e)},409)
         else:self.respond({'error':'not_found'},404)
     def do_POST(self):
         try:
