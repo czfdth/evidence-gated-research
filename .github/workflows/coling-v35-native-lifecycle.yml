@@ -184,7 +184,10 @@ jobs:
                     c=d=.99**((when-dt.datetime.fromisoformat(at)).total_seconds()/3600)
                   lo[id]=a+c+rel[id];hi[id]=b+d+rel[id]
                 sel=set(e['selected']);rest=set(ids)-sel
-                if min(lo[i] for i in sel)>max(hi[j] for j in rest)+1e-9:label='ACCEPT'
+                if all(known[k] is not None for k in flat):
+                  ranked=sorted(ids,key=lambda i:(-lo[i],ids.index(i)))[:2]
+                  label='ACCEPT' if set(ranked)==sel else 'REJECT'
+                elif min(lo[i] for i in sel)>max(hi[j] for j in rest)+1e-9:label='ACCEPT'
                 elif any(lo[j]>hi[i]+1e-9 for j in rest for i in sel):label='REJECT'
                 else:label='UNVERIFIABLE'
                 rows.append({'policy':policy,'epoch':epoch,'read_id':e['event'],'verdict':label})
