@@ -17,7 +17,7 @@ on:
       methods:
         description: "Which original defense algorithms to execute"
         required: false
-        default: "voting"
+        default: "voting,keyword"
         type: choice
         options: ["voting","keyword","voting,keyword"]
       attacks:
@@ -70,7 +70,7 @@ jobs:
       - name: Execute real DashScope API model on original algorithms and attacks
         env:
           LIMIT: ${{ inputs.limit || '1' }}
-          METHODS: ${{ inputs.methods || 'voting' }}
+          METHODS: ${{ inputs.methods || 'voting,keyword' }}
           ATTACKS: ${{ inputs.attacks || 'clean,PIA,Poison' }}
         run: |
           python tools/robustrag_dashscope_reproduce.py \
