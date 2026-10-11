@@ -30,6 +30,7 @@ def main():
     for epoch in range(8):
         t=epoch*2
         name,allowed,ttl=policy[epoch%len(policy)]
+        if epoch==6 and name=='full':ttl=5  # exercise definite-to-expired audit transition
         cid=f'cut-{epoch}'
         db.cut(cid,when(t),ttl,[f'm{i}' for i in allowed])
         for step in range(2):
