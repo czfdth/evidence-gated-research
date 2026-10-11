@@ -112,6 +112,99 @@ jobs:
             e=json.loads(line);verify.verify(base64.b64decode(e['signature']),canonical(e['payload']))
           print('NATIVE_V35_SUCCESS',json.dumps(report,sort_keys=True))
           PY
+      - name: Independent P-only certificate checks and private oracle grading
+        run: |
+          mkdir only-public-v35
+          cp -a v35-evidence/public/. only-public-v35/
+          python - <<'PY'
+          import json,base64,datetime as dt,hashlib,math,zlib
+          from pathlib import Path
+          import numpy as np
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+          from experiments import locomo_readside_v29 as v
+          P=Path('only-public-v35')
+          def load(p):return json.loads(p.read_text())
+          public_key=base64.b64decode((P/'registered-public-key.txt').read_text())
+          vk=Ed25519PublicKey.from_public_bytes(public_key)
+          def verify_bytes(p):
+            out=[]
+            for line in p.read_bytes().splitlines():
+              o=json.loads(line)
+              vk.verify(base64.b64decode(o['signature']),json.dumps(o['payload'],sort_keys=True,separators=(',',':')).encode())
+              out.append(o['payload'])
+            return out
+          signed=verify_bytes(P/'events-signed.jsonl')
+          assert [x['seq'] for x in signed]==list(range(len(signed)))
+          events=[{k:v for k,v in x.items() if k!='seq'} for x in signed]
+          assert len(events)==40 and sum(x['kind']=='READ_COMMIT' for x in events)==16
+          final=load(P/'final-state.json')
+          flat={i+'.'+k:v for i,fields in final.items() for k,v in fields.items()}
+          cat=load(P/'catalog.json')
+          ids=cat['ids']; topics=cat['texts']
+          assert len(ids)==8 and len(topics)==8
+          assert not (P/'private').exists() and not (P/'truth.json').exists()
+          base=dt.datetime(2026,10,10,12,0)
+          rows=[]
+          for policy in ['none','hot3','hot5','full_undo','full_snapshot']:
+            rcpts=verify_bytes(P/(policy+'-retention.jsonl'))
+            witness={}
+            for r in rcpts:
+              if policy=='full_snapshot':continue
+              for e in r['entries']:
+                pair=(e['event'],e['key'])
+                assert pair not in witness
+                assert policy=='full_undo' or e['key'].split('.')[0] in {'none':set(),'hot3':set(ids[:3]),'hot5':set(ids[:5])}[policy]
+                witness[pair]=e['old']
+            snapshots={r['epoch']:{i+'.'+k:v for i,fields in r['state'].items() for k,v in fields.items()} for r in rcpts} if policy=='full_snapshot' else {}
+            for epoch in range(8):
+              cutindex=next(i for i,e in enumerate(events) if e['kind']=='CUT' and e['epoch']==epoch)
+              first={}
+              if policy!='full_snapshot':
+                for e in events[cutindex+1:]:
+                  if e['kind']=='WRITE':first.setdefault(e['key'],(e['event'],e['key']))
+                  elif e['kind']=='READ_COMMIT':
+                    for k in e['changed_keys']:first.setdefault(k,(e['event'],k))
+                known={k:(witness.get(first[k]) if k in first else finalval) for k,finalval in flat.items()}
+              else:known=snapshots[epoch]
+              for e in events[cutindex+1:]:
+                if e['kind']!='READ_COMMIT' or e['epoch']!=epoch:continue
+                when=dt.datetime.fromisoformat(e['time'])
+                cut_when=dt.datetime.fromisoformat(events[cutindex]['when'])
+                q=np.asarray(v.vec(e['query']))
+                rel={ids[i]:float(np.dot(q,np.asarray(v.vec(topics[i])))) for i in range(len(ids))}
+                lo={};hi={}
+                for id in ids:
+                  imp=known.get(id+'.importance')
+                  at=known.get(id+'.last_accessed_at')
+                  a,b=(0.,1.) if imp is None else (float(imp),float(imp))
+                  if at is None:
+                    age=(when-(base-dt.timedelta(hours=20))).total_seconds()/3600
+                    c,d=.99**age,.99**((when-cut_when).total_seconds()/3600)
+                  else:
+                    c=d=.99**((when-dt.datetime.fromisoformat(at)).total_seconds()/3600)
+                  lo[id]=a+c+rel[id];hi[id]=b+d+rel[id]
+                sel=set(e['selected']);rest=set(ids)-sel
+                if min(lo[i] for i in sel)>max(hi[j] for j in rest)+1e-9:label='ACCEPT'
+                elif any(lo[j]>hi[i]+1e-9 for j in rest for i in sel):label='REJECT'
+                else:label='UNVERIFIABLE'
+                rows.append({'policy':policy,'epoch':epoch,'read_id':e['event'],'verdict':label})
+          (P/'audit-verdicts.json').write_text(json.dumps(rows,sort_keys=True,indent=2))
+          truth=load(Path('v35-evidence/private/truth.json'))
+          gold={(x['epoch'],x['event']):x['oracle_label'] for x in truth['tests']}
+          stats=[]
+          for p in ['none','hot3','hot5','full_undo','full_snapshot']:
+            r=[x for x in rows if x['policy']==p]
+            definite=sum(x['verdict']!='UNVERIFIABLE' for x in r)
+            errors=sum(x['verdict']!='UNVERIFIABLE' and x['verdict']!=gold[(x['epoch'],x['read_id'])] for x in r)
+            assert errors==0,(p,errors)
+            if p in ('full_undo','full_snapshot'):assert definite==16,(p,definite)
+            stats.append({'policy':p,'definite':definite,'n':16,'errors':errors,
+                          **load(Path('v35-evidence/public/native-summary.json'))['signed_retention_costs'][p]})
+          out={'native_verified':True,'fully_isolated_auditor':True,'independent_certificate_checks':len(rows),'policies':stats,
+               'caveat':'Small serial in-memory test, not a real deployed lifetime/atomic logger; score bounds conservative.'}
+          Path('v35-evidence/public/verified-policy-summary.json').write_text(json.dumps(out,sort_keys=True,indent=2))
+          print('V35_POLICY_AUDIT_SUCCESS',json.dumps(out,sort_keys=True))
+          PY
       - name: Retain original native execution artifacts
         if: always()
         uses: actions/upload-artifact@v4
