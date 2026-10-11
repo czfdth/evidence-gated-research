@@ -37,11 +37,12 @@ jobs:
         run: |
           python - <<'PY'
           import pathlib,json
-          p=pathlib.Path('v30-native/auditor_views')
+          p=pathlib.Path('v30-native/isolated_views/no_capture')
           a=p/'world0';b=p/'world1'
           for n in ['public-ledger.jsonl','observed-state.json','catalog.json']:
            assert (a/n).read_bytes()==(b/n).read_bytes(),n
            assert b'PRIVATE_CUT_TRUTH' not in (a/n).read_bytes()
+          assert not (a/'capture-C-last-access.jsonl').exists() and not (b/'capture-C-last-access.jsonl').exists()
           x=json.loads(pathlib.Path('v30-native/evaluation-only-summary.json').read_text())
           assert x['no_capture_abstentions']==2 and x['incorrect_definite_verdicts']==0
           print('PASS: byte-identical signed public histories; private preimages segregated; 2/2 abstain without capture')
