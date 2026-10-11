@@ -1,0 +1,25 @@
+name: Public QA probe source archival
+on:
+  push:
+    branches: [retrieval-qa-robustness-ci-smoke]
+    paths:
+      - '.github/workflows/retrieval-qa-source-archive.yml'
+permissions:
+  contents: read
+jobs:
+  publish-reproduction-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p qa-source
+          cp tools/retrieval_qa_voting_smoke.py qa-source/
+          git rev-parse HEAD > qa-source/SOURCE_COMMIT.txt
+          git hash-object tools/retrieval_qa_voting_smoke.py > qa-source/SOURCE_BLOB.txt
+          sha256sum tools/retrieval_qa_voting_smoke.py > qa-source/SOURCE_SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-qa-source-archive
+          path: qa-source/
+          retention-days: 7
