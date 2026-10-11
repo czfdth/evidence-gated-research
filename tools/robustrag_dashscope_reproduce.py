@@ -166,6 +166,37 @@ def run(args):
           "reference_dataset_records":len(data),"source_pins":EXPECTED_BLOBS,
           "secret_used":False,"model_calls":0},indent=2))
         return 0
+    if args.selftest_only:
+        class NoNetworkFixedResponses:
+            def __init__(self):
+                self.model_name="gpt-selftest"
+                self.prompt_template=templates
+            def query(self,prompt): return "A."
+            def batch_query(self,prompts): return ["A." for _ in prompts]
+        dummy=NoNetworkFixedResponses()
+        dummy.wrap_prompt=g["BaseModel"].wrap_prompt.__get__(dummy,type(dummy))
+        raw=json.loads((root/"data/realtimeqa.json").read_text("utf-8"))
+        choice=[d for d in raw if len(d.get("choices",[]))==4 and
+                len(d.get("context",[]))>=args.top_k and d.get("incorrect_context") and
+                isinstance(d.get("incorrect answer"),str)]
+        if not choice: raise RuntimeError("No reference records for no-network self test")
+        check=[]
+        for method in ("voting","keyword"):
+            u=g["RealtimeQA"].__new__(g["RealtimeQA"])
+            u.as_multi_choices=(method=="voting")
+            u.top_k=args.top_k
+            item=u.process_data_item(deepcopy(choice[0]))
+            algo=g["MajorityVoting"](dummy) if method=="voting" else g["KeywordAgg"](dummy)
+            for attack in ("clean","PIA","Poison"):
+                attack_item=item if attack=="clean" else g[attack](
+                    top_k=args.top_k,poison_num=1,repeat=1).attack(item)
+                pred,cert=algo.query(deepcopy(attack_item),corruption_size=0)
+                if not isinstance(pred,str) or not isinstance(cert,bool):
+                    raise RuntimeError(f"Unexpected upstream {method}/{attack} output")
+                check.append(method+"/"+attack)
+        print(json.dumps({"selftest":"PASS","original_source_paths":check,
+            "api_requests":0,"model_backend":"fixed dummy, NOT a real LLM"},indent=2))
+        return 0
     model=DashScopeBackend(args.model,args.api_base,args.max_api_calls)
     model.prompt_template=templates
     # Unmodified upstream BaseModel.wrap_prompt.
@@ -257,6 +288,7 @@ def run(args):
 
 if __name__=="__main__":
     p=argparse.ArgumentParser()
+    p.add_argument("--selftest-only",action="store_true",help="Exercise original algorithms with fixed dummy without contacting provider")
     p.add_argument("--preflight-only",action="store_true",help="Validate original source, classes, dataset and templates without a secret or model API call")
     p.add_argument("--upstream",default="upstream-RobustRAG")
     p.add_argument("--api-base",default=API_BASE_DEFAULT)
