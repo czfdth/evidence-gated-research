@@ -37,10 +37,10 @@ jobs:
           actual=$(git -C upstream-RobustRAG rev-parse HEAD:src/defense.py)
           echo "RobustRAG source SHA = $actual"
           test "$actual" = "dcebedf9d7629963e6cd2998426243d92ac0252f"
-      - name: Model inference on one public RealtimeQA example
+      - name: Model inference on twenty public RealtimeQA examples
         run: |
           python tools/retrieval_qa_voting_smoke.py \
-            --upstream upstream-RobustRAG --limit 1 --top-k 10 --groups 5 \
+            --upstream upstream-RobustRAG --limit 20 --top-k 10 --groups 5 \
             --output results/retrieval-qa-voting-smoke
       - name: Verify measured results
         run: |
@@ -50,7 +50,7 @@ jobs:
           assert (p/'REAL_MODEL_RUN_COMPLETED.txt').exists()
           meta=json.loads((p/'run_metadata.json').read_text())
           assert meta['is_real_model_inference'] and meta['model_calls']['model_requests']>0
-          assert len(json.loads((p/'per_query.json').read_text()))==3
+          assert len(json.loads((p/'per_query.json').read_text()))==60
           print(json.dumps(meta['model_calls'],indent=2))
           PY
       - name: Save genuine outputs (public RealtimeQA only)
