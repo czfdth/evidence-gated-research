@@ -34,7 +34,7 @@ def main():
         db.cut(cid,when(t),ttl,[f'm{i}' for i in allowed])
         for step in range(2):
             uid=(epoch*3+step)%8
-            db.write(f'm{uid}',round(.11+.07*((epoch+step)%9),3),when(t+.10+step*.25),request_id=f'write-{epoch}-{step}')
+            target=round(.11+.07*((epoch+step)%9),3)\n            if target==db.state()[f'm{uid}']['importance']:target=round(target+.031,3)\n            db.write(f'm{uid}',target,when(t+.10+step*.25),request_id=f'write-{epoch}-{step}')
             seq,selected=db.read(QUERIES[(epoch+step*3)%8],when(t+.20+step*.25),a.upstream,request_id=f'read-{epoch}-{step}')
             label=db.audit(cid,seq,now=when(t+.30+step*.25))
             saved.append((cid,seq));rows.append({'epoch':epoch,'cut':cid,'read_seq':seq,'returned':selected,'verdict_immediate':label,'policy':name})
