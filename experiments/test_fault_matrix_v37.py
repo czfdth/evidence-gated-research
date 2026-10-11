@@ -64,8 +64,17 @@ def extra(root):
         try:c.read('paris museum tickets',at(.4),'no-upstream-needed','bad-read')
         except DivergenceError:pass
         else:raise AssertionError('modified index accepted')
+        # Restore legitimate importance and separately corrupt persisted vector bytes.
+        svc.stop()
+        p=sqlite3.connect(root/'index'/'index.sqlite3')
+        p.execute("UPDATE docs SET importance=? WHERE id='m0'",(.731,))
+        p.execute("UPDATE docs SET embedding='[0.0]' WHERE id='m0'")
+        p.commit();p.close();svc.start()
+        try:c.read('paris museum tickets',at(.5),'no-upstream-needed','bad-vector')
+        except DivergenceError:pass
+        else:raise AssertionError('corrupted vector embedding accepted')
         c.close();c=None
-        return {'offline_write':'refused','index_divergence':'refused'}
+        return {'offline_write':'refused','index_metadata_divergence':'refused','index_vector_divergence':'refused'}
     finally:
         if c:c.close()
         svc.stop()
