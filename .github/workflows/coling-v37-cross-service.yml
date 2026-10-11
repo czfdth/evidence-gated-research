@@ -1,0 +1,68 @@
+name: COLING v37 Cross-Service Persistent Index and Audit Recovery
+on:
+  push:
+    branches:
+      - experiments/coling-v37-cross-service-20261011
+    paths:
+      - '.github/workflows/coling-v37-cross-service.yml'
+      - 'experiments/*v37.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-two-process:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install genuine pinned framework and signing packages
+        run: |
+          python -m pip install 'langchain-core==0.3.83' 'numpy>=1.26,<3' 'cryptography>=42'
+          python -c 'from importlib.metadata import version;assert version("langchain-core")=="0.3.83"'
+      - name: Pin unchanged official upstream time weighted retriever
+        run: |
+          mkdir -p src
+          curl --fail --location --retry 3 --silent --show-error https://raw.githubusercontent.com/langchain-ai/langchain/bdf1cd383ce36dc18381a3bf3fb0a579337a32b5/libs/langchain/langchain/retrievers/time_weighted_retriever.py -o src/time_weighted_retriever_v29.py
+          echo '2a55ff628c1d44ebf1faa01008579ac26ed0ae5996daec6dcde3ae4cb9233daa  src/time_weighted_retriever_v29.py' | sha256sum --check
+      - name: Native serial dual database and version gate experiment
+        run: |
+          PYTHONPATH=. python experiments/run_cross_service_v37.py --upstream src/time_weighted_retriever_v29.py --out results/v37-cross-service
+      - name: Native cross-process crash stages and fail closed controls
+        run: |
+          PYTHONPATH=. python experiments/test_fault_matrix_v37.py --upstream src/time_weighted_retriever_v29.py --out results/v37-fault-matrix
+      - name: Independent integrity and no-private-key check
+        run: |
+          python - <<'PY'
+          import json,sqlite3
+          from pathlib import Path
+          d=Path('results/v37-cross-service')
+          r=json.loads((d/'native-results.json').read_text())['summary']
+          assert r['native_reads']==16 and r['read_side_refreshes']==32 and r['service_restarts']==8
+          assert r['index_revision']==r['coord_version']
+          for p in (d/'coordinator/audit.sqlite3',d/'index-service/index.sqlite3'):
+              c=sqlite3.connect(p);assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok';c.close()
+          print('V37_DATABASE_INTEGRITY_PASS',r['index_revision'])
+          PY
+          rm results/v37-cross-service/coordinator/signer.key
+      - name: Archive actual service files and execution output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coling-v37-pinned-cross-service-persistent-recovery
+          path: |
+            results/v37-cross-service/
+            results/v37-fault-matrix/
+            experiments/persistent_vector_service_v37.py
+            experiments/cross_service_audit_v37.py
+            experiments/run_cross_service_v37.py
+            experiments/fault_worker_v37.py
+            experiments/test_fault_matrix_v37.py
+            experiments/durable_audit_v36.py
+            experiments/locomo_readside_v29.py
+            src/time_weighted_retriever_v29.py
+            .github/workflows/coling-v37-cross-service.yml
+          if-no-files-found: warn
+          retention-days: 90
