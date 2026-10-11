@@ -1,4 +1,5 @@
 name: Pinned RobustRAG with DashScope API (original voting and keyword algorithms)
+# Credential-safe smoke run requested 2026-10-11: public corpus, 1 question, 1 model.
 on:
   push:
     branches: [retrieval-qa-robustness-ci-smoke]
