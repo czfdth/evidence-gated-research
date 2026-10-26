@@ -2,7 +2,7 @@
 # bibtexparser declares pylatexenc as a required dependency for LaTeX decoding.
 bibtexparser==2.1.0
 pylatexenc==2.11
-pymupdf==1.28.2
+pymupdf==2.0
 PyYAML==6.0.3
 z3-solver==5.1.0.0
 # Second independent SMT engine: agreement between Z3 and cvc5 is stronger
